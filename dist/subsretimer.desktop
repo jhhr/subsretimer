@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Subs Re-Timer
+Comment=Re-time a subtitle file based on the timings of another subtitle file
+GenericName=Subtitle Re-Timer
+Exec=subsretimer
+Icon=subsretimer
+Categories=Education;Languages;AudioVideo;Audio;Video;
+Terminal=false
+Type=Application
+StartupNotify=true
+NoDisplay=true
