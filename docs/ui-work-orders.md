@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 2)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 3)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -136,19 +136,27 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   `Engine`, `SavedPaths`, `LoadReference/LoadTarget(path, enc?)`, `SetFile(side, file)`,
   `SelectReference/SelectTarget(i)`, `SelectedReference/SelectedTarget` (-1 = none),
   `RowState(side, i)`, `Counters(side)`, `DetailSummary`, `BoundStartText(side, i)`,
-  `StoreRebuilds`), `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  `StoreRebuilds`; since phase 3 also `TimeShift()`, `Undo()`, `Redo()`, `Save()`,
+  `SaveAs(path)`, `IsDirty`, `CanTimeShift`, `RequestClose()` and the seam
+  `Func<Task<int>>? CloseChoice` that stands in for the Save/Discard/Cancel dialog).
+  Buttons Time Shift / Undo / Redo / Save / Save As sit at the right end of the detail
+  strip; `RefreshButtons()` and `RefreshTitle()` run from the `Changed` handler and the
+  selection path. Every save goes through `SaveTo(path?)`, which appends to `SavedPaths`
+  (deduplicated). `OnCloseRequest` vetoes while dirty and `PromptThenClose` ends with
+  `Destroy()`; `Widget.OnDestroy` fires for neither `Close()` nor `Destroy()`.
+  `RunEditor` prints `SavedPaths` under `--print-output` and exits 0/2 from it. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
   `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
-- `SubsRetimer.Tests`: xUnit, 69 tests, `Fixtures.Lines` (periodic) and
+- `SubsRetimer.Tests`: xUnit, 72 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
 - No UI tests yet (phase 6). Smoke runs use a throwaway driver under Xvfb.
 
 ## 4. Phases
 
-Done: 1, 2.
+Done: 1, 2, 3.
 
 ### 1 — Core: change notification and gap navigation
 
