@@ -14,12 +14,8 @@
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
     <ApplicationIcon Condition="Exists('$(MSBuildProjectDirectory)/../assets/subsretimer.ico')">../assets/subsretimer.ico</ApplicationIcon>
-    <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
-    <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
     <Description>Re-time a subtitle file to match the timings of another subtitle file</Description>
     <PackageProjectUrl>https://github.com/jhhr/subsretimer</PackageProjectUrl>
-    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../SubsRetimer.Core/SubsRetimer.Core.csproj" />

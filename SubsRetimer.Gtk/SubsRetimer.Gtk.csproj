@@ -7,11 +7,7 @@
          would shadow the global Gtk namespace in every file of this project. -->
     <RootNamespace>SubsRetimer.Editor</RootNamespace>
     <AssemblyName>SubsRetimer.Gtk</AssemblyName>
-    <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
-    <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
     <Description>Subs Re-Timer editor window (GTK 4)</Description>
-    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
