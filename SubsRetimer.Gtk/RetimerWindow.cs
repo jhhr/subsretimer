@@ -111,6 +111,13 @@ namespace SubsRetimer.Editor
     /// <summary>Files saved from this window, in order; the exit code of the command line follows it.</summary>
     internal IReadOnlyList<string> SavedPaths => _savedPaths;
 
+    /// <summary>
+    /// Called with each newly saved full path the moment the file is written,
+    /// once per path, exactly as it is appended to <see cref="SavedPaths"/>.
+    /// The command line prints it there under <c>--print-output</c>.
+    /// </summary>
+    internal Action<string>? PathSaved { get; set; }
+
     /// <summary>True when the target has timing changes that are not in any saved file.</summary>
     internal bool IsDirty => _engine.IsDirty;
 
@@ -1065,7 +1072,16 @@ namespace SubsRetimer.Editor
         // Full paths, because they are what --print-output hands to the
         // program that launched the editor.
         string saved = Path.GetFullPath(_engine.Save(path));
-        if (!_savedPaths.Contains(saved)) _savedPaths.Add(saved);
+        if (!_savedPaths.Contains(saved))
+        {
+          _savedPaths.Add(saved);
+          // Report it now, not when the window closes: the program that
+          // launched the editor can act on the file while it is still open.
+          // A reporter that fails (a closed stdout) must not turn a good save
+          // into an error dialog; the file is on disk either way.
+          try { PathSaved?.Invoke(saved); }
+          catch (Exception) { /* the save stands */ }
+        }
         return true;
       }
       catch (Exception ex)

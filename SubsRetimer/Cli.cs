@@ -179,10 +179,12 @@ Supported formats: .ass, .ssa, .srt";
     internal static Func<bool> CanOpenDisplay = EditorHost.CanOpenDisplay;
 
     /// <summary>
-    /// Runs the editor window and returns the paths it saved. The other seam,
+    /// Runs the editor window, calling the third argument with each path as
+    /// the window saves it, and returns every path it saved. The other seam,
     /// for the same reason.
     /// </summary>
-    internal static Func<SubtitleFile?, SubtitleFile?, IReadOnlyList<string>> RunWindow = EditorHost.Run;
+    internal static Func<SubtitleFile?, SubtitleFile?, Action<string>?, IReadOnlyList<string>> RunWindow =
+      EditorHost.Run;
 
     private static int RunEditor(Options o, TextWriter stdout, TextWriter stderr)
     {
@@ -196,10 +198,17 @@ Supported formats: .ass, .ssa, .srt";
         return ExitError;
       }
 
+      // stdout carries saved paths and nothing else. Each one is written and
+      // flushed as the window saves it, the way --auto does it, so a program
+      // waiting on the editor can read a path before the window closes.
+      Action<string>? onSaved = null;
+      if (o.PrintOutput)
+        onSaved = path => { stdout.WriteLine(path); stdout.Flush(); };
+
       IReadOnlyList<string> saved;
       try
       {
-        saved = RunWindow(reference, target);
+        saved = RunWindow(reference, target, onSaved);
       }
       catch (Exception ex)
       {
@@ -209,13 +218,7 @@ Supported formats: .ass, .ssa, .srt";
         return ExitError;
       }
 
-      // The window collected every file it wrote; stdout carries those paths
-      // and nothing else, in the order they were saved.
-      if (o.PrintOutput)
-      {
-        foreach (string path in saved) stdout.WriteLine(path);
-        stdout.Flush();
-      }
+      // The window collected every file it wrote; the exit code follows it.
       return saved.Count > 0 ? ExitSaved : ExitNothingSaved;
     }
   }

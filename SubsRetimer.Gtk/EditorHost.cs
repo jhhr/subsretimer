@@ -44,14 +44,21 @@ namespace SubsRetimer.Editor
     /// loop. Returns the paths saved before the window closed, in order
     /// (nothing can be saved yet).
     /// </summary>
-    public static IReadOnlyList<string> Run(SubtitleFile? reference, SubtitleFile? target)
+    /// <param name="onSaved">
+    /// Called on the GTK thread with each saved full path as the file is
+    /// written, once per path and in the order of the returned list. The
+    /// command line prints them from here, so that a program waiting on the
+    /// editor learns of a file while the window is still open.
+    /// </param>
+    public static IReadOnlyList<string> Run(
+      SubtitleFile? reference, SubtitleFile? target, Action<string>? onSaved = null)
     {
       var application = Gtk.Application.New(ApplicationId, Gio.ApplicationFlags.NonUnique);
       RetimerWindow? window = null;
 
       application.OnActivate += (_, _) =>
       {
-        window = new RetimerWindow(application);
+        window = new RetimerWindow(application) { PathSaved = onSaved };
         if (reference != null) window.SetFile(Side.Reference, reference);
         if (target != null) window.SetFile(Side.Target, target);
         window.Show();

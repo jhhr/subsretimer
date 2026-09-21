@@ -181,7 +181,7 @@ namespace SubsRetimer.Tests
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
         canOpenDisplay: () => true,
-        runWindow: (reference, target) =>
+        runWindow: (reference, target, _) =>
         {
           // Both files are loaded before the window opens.
           Assert.NotNull(reference);
@@ -203,7 +203,14 @@ namespace SubsRetimer.Tests
 
       var r = WithEditorSeams(
         canOpenDisplay: () => true,
-        runWindow: (_, _) => new[] { first, second },
+        // The window reports each path as it writes the file; what the print
+        // proves is that the callback, not the returned list, does the printing.
+        runWindow: (_, _, onSaved) =>
+        {
+          var paths = new[] { first, second };
+          foreach (string path in paths) onSaved?.Invoke(path);
+          return paths;
+        },
         () => Run("--print-output", rf, tg));
 
       Assert.Equal(Cli.ExitSaved, r.Code);
@@ -216,7 +223,12 @@ namespace SubsRetimer.Tests
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
         canOpenDisplay: () => true,
-        runWindow: (_, _) => new[] { Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) },
+        // Without --print-output there is no callback to report to at all.
+        runWindow: (_, _, onSaved) =>
+        {
+          Assert.Null(onSaved);
+          return new[] { Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) };
+        },
         () => Run(rf, tg));
 
       Assert.Equal(Cli.ExitSaved, r.Code);
@@ -229,7 +241,7 @@ namespace SubsRetimer.Tests
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
         canOpenDisplay: () => true,
-        runWindow: (_, _) => Array.Empty<string>(),
+        runWindow: (_, _, _) => Array.Empty<string>(),
         () => Run("--print-output", rf, tg));
 
       Assert.Equal(Cli.ExitNothingSaved, r.Code);
@@ -242,7 +254,7 @@ namespace SubsRetimer.Tests
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
         canOpenDisplay: () => true,
-        runWindow: (_, _) => throw new InvalidOperationException("gtk fell over"),
+        runWindow: (_, _, _) => throw new InvalidOperationException("gtk fell over"),
         () => Run(rf, tg));
 
       Assert.Equal(Cli.ExitError, r.Code);
@@ -253,7 +265,7 @@ namespace SubsRetimer.Tests
     /// <summary>Swap the editor seams for the duration of one call and put them back.</summary>
     private static T WithEditorSeams<T>(
       Func<bool> canOpenDisplay,
-      Func<SubtitleFile?, SubtitleFile?, IReadOnlyList<string>> runWindow,
+      Func<SubtitleFile?, SubtitleFile?, Action<string>?, IReadOnlyList<string>> runWindow,
       Func<T> body)
     {
       var display = Cli.CanOpenDisplay;
