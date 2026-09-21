@@ -1,24 +1,26 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>subsretimer</AssemblyName>
-    <RootNamespace>SubsRetimer</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Namespace, not SubsRetimer.Gtk: a namespace named Gtk under SubsRetimer
+         would shadow the global Gtk namespace in every file of this project. -->
+    <RootNamespace>SubsRetimer.Editor</RootNamespace>
+    <AssemblyName>SubsRetimer.Gtk</AssemblyName>
     <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
     <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
-    <Description>Re-time a subtitle file to match the timings of another subtitle file</Description>
-    <PackageProjectUrl>https://github.com/jhhr/subsretimer</PackageProjectUrl>
+    <Description>Subs Re-Timer editor window (GTK 4)</Description>
     <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
     <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../SubsRetimer.Core/SubsRetimer.Core.csproj" />
-    <ProjectReference Include="../SubsRetimer.Gtk/SubsRetimer.Gtk.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SubsRetimer.Tests" />
+    <InternalsVisibleTo Include="SubsRetimer.UiTests" />
   </ItemGroup>
 </Project>
