@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 5)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 6)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -162,19 +162,33 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   applied; `AutoAlign.Apply` pushes one undo step per segment **that moves**, a zero
   delta is silent), `StatusText` / `NoAlignment`, a dim status label between the lists
   and the detail strip (hidden while empty, cleared by `SetFile`), the Auto Align button
-  after Time Shift and `win.auto-align` enabled from `RefreshButtons`. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  after Time Shift and `win.auto-align` enabled from `RefreshButtons`.
+  `ChoiceSave/Discard/Cancel` are internal constants.
+- After phase 6 (lead): `IsDirty` is no longer a sticky flag but "undo depth differs
+  from the clean depth" (set on load and save, -1 once unreachable), so undoing back to
+  the loaded or saved state clears the star.
+- `SubsRetimer.UiTests` (xUnit, 14 tests, `[GtkFact]` skips every test when
+  `EditorHost.CanOpenDisplay()` is false): `Harness/GtkFixture` (one GTK thread,
+  `RunOnGtk`/`RunOnGtkAsync`), `Pump` (`IdleAsync`, `FramesAsync`, `SettleAsync`,
+  `WaitUntilAsync`; never settle on a window an action may have destroyed, use
+  `UiTestScope.RunIdleAsync`), `Screenshot` (`SUBSRETIMER_UITEST_ARTIFACTS`),
+  `UiTestScope` (temp dir, `OpenWindowAsync`, `RunAsync`, `Read`, leak check through
+  `Gtk.Window.GetToplevels()`), `SubtitleFixtures` (irregular whole-centisecond timings,
+  40 s silences, cumulative cuts; writes `reference.srt` + `target.ass`). Tests in
+  `Tests/Window{Load,Edit,Navigation,AutoAlign}Tests.cs` call the internal surface.
+  Run: `make test-ui` (= `GSK_RENDERER=cairo xvfb-run -a dotnet test ...`); CI has a
+  `ui-tests` job. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
   `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
-- `SubsRetimer.Tests`: xUnit, 74 tests, `Fixtures.Lines` (periodic) and
+- `SubsRetimer.Tests`: xUnit, 76 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
-- No UI tests yet (phase 6). Smoke runs use a throwaway driver under Xvfb.
 
 ## 4. Phases
 
-Done: 1, 2, 3, 4, 5.
+Done: 1, 2, 3, 4, 5, 6.
 
 ### 1 — Core: change notification and gap navigation
 
@@ -500,3 +514,10 @@ once at discovery and the fixture starts no application without one, because
 `scope.RunAsync(window, …)`, what may destroy it through `RunIdleAsync`.
 
 Left open: the CI job and the `Makefile` lines are in the report (not editable).
+
+### Lead — 2026-09-21 — after phase 6
+Changed: `RetimerEngine.IsDirty` is now computed from a clean undo depth (commit
+`core: undoing back to the loaded or saved state is clean again`), with two engine tests
+and the UI assertion flipped; CI `ui-tests` job and `make test-ui` added.
+The next phase must know: UI tests exist and must stay green (`make test-ui`); add tests
+for new behaviour there, in the existing files' shape.
