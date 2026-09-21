@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 6)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 7)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -167,7 +167,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - After phase 6 (lead): `IsDirty` is no longer a sticky flag but "undo depth differs
   from the clean depth" (set on load and save, -1 once unreachable), so undoing back to
   the loaded or saved state clears the star.
-- `SubsRetimer.UiTests` (xUnit, 14 tests, `[GtkFact]` skips every test when
+- `SubsRetimer.UiTests` (xUnit, 20 tests, `[GtkFact]` skips every test when
   `EditorHost.CanOpenDisplay()` is false): `Harness/GtkFixture` (one GTK thread,
   `RunOnGtk`/`RunOnGtkAsync`), `Pump` (`IdleAsync`, `FramesAsync`, `SettleAsync`,
   `WaitUntilAsync`; never settle on a window an action may have destroyed, use
@@ -177,18 +177,27 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   40 s silences, cumulative cuts; writes `reference.srt` + `target.ass`). Tests in
   `Tests/Window{Load,Edit,Navigation,AutoAlign}Tests.cs` call the internal surface.
   Run: `make test-ui` (= `GSK_RENDERER=cairo xvfb-run -a dotnet test ...`); CI has a
-  `ui-tests` job. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  `ui-tests` job.
+- Since phase 7: `TimelineLayout` (display-free: `ScaleSeconds` clamped 4..120, default
+  10; `ScaleWindow`, `VisibleLines`, `XFor`, `BarRect`, ticks and labels; 8 unit tests)
+  and `TimelineChart` (a `Gtk.Box` with `+`/`-` zoom buttons and a `DrawingArea` drawn
+  through `SetDrawFunc`; `SetLines`, `SetActive`, `QueueDraw`, `ClickAt(button, x, y)`
+  → `Clicked`, `DrawCount`/`LastDrawError`; a throwing draw is caught, never escapes the
+  native callback). Packed between the menu bar and the top strip, 64 px. Window:
+  `Chart`, `ChartClick(button)`, `MoveTargetSelection(step)`, `RefreshChart()`. Cairo in
+  0.7: `LineWidth` is a property, the pressed button comes from
+  `GestureSingle.GetCurrentButton()`. `Tests/WindowChartTests.cs` has 6 UI tests. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
   `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
-- `SubsRetimer.Tests`: xUnit, 76 tests, `Fixtures.Lines` (periodic) and
+- `SubsRetimer.Tests`: xUnit, 84 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
 
 ## 4. Phases
 
-Done: 1, 2, 3, 4, 5, 6.
+Done: 1, 2, 3, 4, 5, 6, 7.
 
 ### 1 — Core: change notification and gap navigation
 
