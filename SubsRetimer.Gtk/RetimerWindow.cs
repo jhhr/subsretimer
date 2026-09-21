@@ -512,16 +512,16 @@ namespace SubsRetimer.Editor
     {
       string? path = PathFromDrop(value);
       if (path == null) return false;   // nothing usable was dropped
-      try
+
+      // Replacing a dirty target asks first, and the drop signal cannot wait
+      // for the answer: the drop is taken either way and the file is loaded
+      // once the user has chosen.
+      if (side == Side.Target && _engine.IsDirty)
       {
-        SetFile(side, RetimerIO.Load(path));
+        _ = OpenPathAsync(side, path);
         return true;
       }
-      catch (Exception ex)
-      {
-        ShowError("The subtitle file could not be opened.", ex.Message);
-        return false;
-      }
+      return LoadPath(side, path);
     }
 
     /// <summary>
@@ -985,11 +985,67 @@ namespace SubsRetimer.Editor
 
         string? path = chosen?.GetPath();
         if (path == null) return;
-        SetFile(side, RetimerIO.Load(path));
+        await OpenPathAsync(side, path);
       }
       catch (Exception ex)
       {
         ShowError("The subtitle file could not be opened.", ex.Message);
+      }
+    }
+
+    /// <summary>
+    /// Show the file at <paramref name="path"/> on <paramref name="side"/>,
+    /// asking about unsaved changes first when it would throw them away.
+    /// Every way into the window goes through here except the command line,
+    /// which loads before the window exists and so has nothing to lose.
+    /// </summary>
+    /// <returns>True when the file was loaded.</returns>
+    internal async Task<bool> OpenPathAsync(Side side, string path)
+    {
+      // Only the target carries the edits; a new reference costs nothing.
+      if (side == Side.Target && !await ConfirmReplaceTarget()) return false;
+      return LoadPath(side, path);
+    }
+
+    /// <summary>
+    /// Load <paramref name="path"/> now, with no questions asked. False, and
+    /// a dialog, when it could not be read.
+    /// </summary>
+    private bool LoadPath(Side side, string path)
+    {
+      try
+      {
+        SetFile(side, RetimerIO.Load(path));
+        return true;
+      }
+      catch (Exception ex)
+      {
+        ShowError("The subtitle file could not be opened.", ex.Message);
+        return false;
+      }
+    }
+
+    /// <summary>
+    /// Whether the target may be replaced: it has no unsaved changes, or the
+    /// user answered the same Save / Discard / Cancel question closing asks.
+    /// Save that failed, Cancel and a dismissed prompt all keep the target.
+    /// </summary>
+    private async Task<bool> ConfirmReplaceTarget()
+    {
+      if (!_engine.IsDirty) return true;
+      if (_prompting) return false;   // one prompt at a time
+
+      _prompting = true;
+      try
+      {
+        int choice = await AskAboutUnsavedChanges();
+        if (choice == ChoiceDiscard) return true;
+        // A failed save keeps the changes: they are still only in here.
+        return choice == ChoiceSave && Save();
+      }
+      finally
+      {
+        _prompting = false;
       }
     }
 
