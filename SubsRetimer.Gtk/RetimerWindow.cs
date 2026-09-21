@@ -906,9 +906,11 @@ namespace SubsRetimer.Editor
 
     // ── Closing ──────────────────────────────────────────────────────────
 
-    private const int ChoiceSave = 0;
-    private const int ChoiceDiscard = 1;
-    private const int ChoiceCancel = 2;
+    // Internal, not private: this is the prompt's button order, and a test
+    // answering CloseChoice has to name the same buttons.
+    internal const int ChoiceSave = 0;
+    internal const int ChoiceDiscard = 1;
+    internal const int ChoiceCancel = 2;
 
     /// <summary>
     /// The close-request handler: true keeps the window open. With unsaved
