@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 3)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 4)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -144,19 +144,32 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   selection path. Every save goes through `SaveTo(path?)`, which appends to `SavedPaths`
   (deduplicated). `OnCloseRequest` vetoes while dirty and `PromptThenClose` ends with
   `Destroy()`; `Widget.OnDestroy` fires for neither `Close()` nor `Destroy()`.
-  `RunEditor` prints `SavedPaths` under `--print-output` and exits 0/2 from it. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  `RunEditor` prints `SavedPaths` under `--print-output` and exits 0/2 from it.
+  Since phase 4: `Gio.SimpleAction`s on the window (`win.open-reference`, `open-target`,
+  `save`, `save-as`, `quit`, `undo`, `redo`, `time-shift`, `auto-align` (disabled until
+  phase 5), `help`, `about`; constants on the window), a `Gtk.PopoverMenuBar` File/Edit/
+  Help as the first child of the root box, accelerators through
+  `SetAccelsForAction`; `RefreshButtons()` keeps action state and button sensitivity in
+  step. Per list (`AttachInput`): a capture-phase `Gtk.EventControllerKey` → `OnListKey`
+  (Left/Right closest line on the other side + focus; Ctrl+Up/Down gap jump; Return =
+  Time Shift), `Gtk.GestureClick` button 3 / button 2 → `OnListClick` (selects the clicked
+  row via `LineListView.IndexAt(x, y)`, then closest line / Time Shift). Internal:
+  `SelectClosestOnOtherSide(side)`, `JumpToGap(side, forward)` (index or -1),
+  `ActivateAction(name)`, `KeyTable`, `AboutText`, `ShowMessage`; on `LineListView`:
+  `GapFlags`, `ScrollTo(index, focus)`, `IndexAt(x, y)`. GTK 4 event synthesis is not
+  exposed in GirCore 0.7: the handlers are the test seam, not real key delivery. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
   `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
-- `SubsRetimer.Tests`: xUnit, 72 tests, `Fixtures.Lines` (periodic) and
+- `SubsRetimer.Tests`: xUnit, 73 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
 - No UI tests yet (phase 6). Smoke runs use a throwaway driver under Xvfb.
 
 ## 4. Phases
 
-Done: 1, 2, 3.
+Done: 1, 2, 3, 4.
 
 ### 1 — Core: change notification and gap navigation
 
