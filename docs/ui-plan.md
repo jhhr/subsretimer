@@ -1,8 +1,10 @@
 # Editor window: implementation plan
 
-Status: plan, agreed 2026-09-21. Not started. The headless `--auto` path and the
-subs2srs launcher are done; this is the interactive editor the original Subs
-Re-Timer had.
+Status: agreed 2026-09-21, in progress on branch `ui-editor`. Built phase by
+phase by agents following `docs/ui-work-orders.md`; the phase list at the end
+of this file records what is done. The headless `--auto` path and the subs2srs
+launcher are done; this is the interactive editor the original Subs Re-Timer
+had.
 
 ## Decisions taken
 
@@ -84,37 +86,124 @@ Two GTK4 traps to build around from the start:
   the saved state in the window and compute the exit code from it, not from a
   destroy handler.
 
-## Order of work
+## Facts checked in the code (2026-09-21)
 
-1. **Skeleton and lists.** `SubsRetimer.Gtk`, `RetimerWindow`, lists fed from
-   the engine, colours, detail strip, selection sync, counters, Open buttons
-   with an `.ass/.ssa/.srt` filter. Wire `RunEditor`, keeping the exit codes.
-   Done when a headless harness can open two files, select rows and see the
-   right colours.
-2. **Editing.** Time Shift, Undo, Redo, dirty tracking, Save and Save As with
-   the stdout print, close prompt. Then the keyboard table and the
-   closest-line gestures.
-3. **Auto Align in the editor** with the segment summary in the status line.
-4. **UI tests.** Port subs2srs's `subs2srs.UiTests/Harness` (about 480 lines:
-   one GTK thread fixture, `Pump` for settling, `Screenshot`, a scope that
-   fails on leaked windows) into `SubsRetimer.UiTests`. Tests call handlers
-   directly, as subs2srs does; `SUBSRETIMER_UITEST_ARTIFACTS=<dir>` saves a
-   PNG per window. Expose an `internal` test surface rather than reflecting.
-   Extend `ci.yml` with a Linux job that installs GTK 4 and runs the UI tests
-   under Xvfb with `GSK_RENDERER=cairo`.
-5. **Timeline chart.** `Gtk.DrawingArea` + Cairo: two rows of bars for the
-   lines in the visible window, scale ticks and labels, active lines
-   highlighted, zoom in/out. Left-click advances the target selection,
-   right-click goes back, middle-click shifts. A port of the original
-   `ChartSubs.cs` (about 440 lines of GDI+, one-to-one onto Cairo).
-6. **Drag-and-drop spike.** Try `GObject.Type.String` drops (file managers
-   often offer `text/plain` beside `text/uri-list`) and reading `Gdk.FileList`
-   through `Value.GetBoxed`. If neither works cleanly in 0.7, leave drops out;
-   Open buttons and command-line arguments cover the workflow.
-7. **Packaging and docs.** Drop `NoDisplay` from the desktop file, add an icon,
-   adapt subs2srs's `dist/windows/bundle-gtk.ps1` and `smoke.ps1` for a
-   Windows zip on `v*` tags. Update this repo's README status and the
-   subs2srs docs line that says the editor is not ported.
+So that phases do not re-derive them:
 
-Steps 1 to 3 are the useful product and can be built and smoke-tested
-headless. Step 4 before step 5 so the chart lands with tests.
+- `RetimerEngine` (`SubsRetimer.Core/RetimerEngine.cs`, ~230 lines) keeps
+  `ReferenceLines` / `TargetLines` sorted by start; `ShiftFrom(fromIndex,
+  delta)` moves every target line from that index and pushes an undo snapshot
+  of `(Start, End)`; `Undo`/`Redo` return false when there is nothing to do;
+  `Save(outputPath?)` returns the path written and clears `IsDirty`.
+  `LargeGapFlags(lines, firstBaseline?)` flags a line whose start is more than
+  28 s after the previous line's start (the first line only against the other
+  file's first start). `MismatchFlags(lines, others)` is true where
+  `BestOverlap` is 0. There is **no change notification** and no gap
+  navigation yet: phase 1 adds them.
+- `Cli.RunEditor` (`SubsRetimer/Cli.cs`) validates the given paths with
+  `LoadChecked` then exits 1 with "not available in this build yet". The test
+  `CliTests.Editor_NotAvailableYet_ExitsOne` pins that and changes in phase 2.
+  `Cli.Run` maps `IOException`, `ArgumentException`, `FormatException` and
+  friends to exit 1 with the message on stderr; other exceptions propagate.
+- subs2srs starts GTK with `Gtk.Application.New(id, Gio.ApplicationFlags.FlagsNone)`
+  and `RunWithSynchronizationContext(null)` (`subs2srs/Program.cs` line 75).
+  Its UI test fixture uses `ApplicationFlags.NonUnique`, `Hold()` to keep the
+  loop alive with no windows, and sets a `GtkSynchronizationContext` in
+  `OnActivate` (`subs2srs.UiTests/Harness/GtkFixture.cs`).
+- Worked examples of the list pattern in GirCore 0.7:
+  `subs2srs/DialogPreview.cs` lines 497 to 665 (CSS provider via
+  `Gtk.CssProvider.New()` + `LoadFromString` + `Gtk.StyleContext.AddProviderForDisplay`;
+  `Gtk.SignalListItemFactory` setup/bind; `Gtk.ColumnViewColumn.New(title,
+  factory)`; row colour by `AddCssClass`/`RemoveCssClass` on the cell widget)
+  and `subs2srs/GtkColumnViewHelper.cs` (column sizing: never combine
+  `SetExpand(true)` with `SetFixedWidth` on one column).
+- Screenshot of a window without a display server:
+  `subs2srs.UiTests/Harness/Screenshot.cs` (`Gtk.WidgetPaintable` →
+  `Gtk.Snapshot` → `Gsk.CairoRenderer.RenderTexture` → `Texture.SaveToPng`).
+- The subsretimer repository is LF-only (no CRLF files to protect).
+- This container has .NET SDK 10.0.112, `libgtk-4-1` and `xvfb-run`; the
+  GirCore 0.7.0 packages are in the NuGet cache. Editor smoke runs are
+  `GSK_RENDERER=cairo xvfb-run -a …`.
+
+## Phases
+
+Work orders, rules and the hand-over log: `docs/ui-work-orders.md`. Each phase
+leaves the tree building, the tests green and committed on `ui-editor`.
+
+1. **Core: change notification and gap navigation.** Not started.
+2. **Gtk skeleton: window, lists, colours, detail strip, `RunEditor`.**
+   Not started.
+3. **Editing: Time Shift, undo/redo, dirty state, Save/Save As, close prompt.**
+   Not started.
+4. **Keyboard and mouse: menu, accelerators, closest-line and gap navigation.**
+   Not started.
+5. **Auto Align in the editor.** Not started.
+6. **UI test harness, tests for phases 2 to 5, CI job.** Not started.
+7. **Timeline chart.** Not started.
+8. **Drag-and-drop spike.** Not started.
+9. **Packaging: desktop file, icon, Windows bundle.** Not started.
+10. **Documentation pass.** Not started.
+
+Phases 1 to 5 are the useful product and can be built and smoke-tested
+headless. Phase 6 before phase 7 so the chart lands with tests.
+
+### What each phase covers
+
+1. `RetimerEngine.Changed` event and a `Version` counter, raised on load,
+   shift, undo, redo and save; static `NextLargeGap(flags, from)` /
+   `PreviousLargeGap(flags, from)` over a `bool[]` from `LargeGapFlags`,
+   returning -1 when there is none. Unit tests only.
+2. `SubsRetimer.Gtk` class library (GirCore.Gtk-4.0 0.7.0) with
+   `RetimerWindow`: top strip, two `ColumnView` lists fed from the engine
+   (`Gio.ListStore` of `Gtk.StringObject` holding the row index, parallel
+   `List<RetimerLine>`), row colours by CSS class, file names, `selected/total`
+   counters, detail strip (text, start, overlap percent with green/red
+   background, signed difference), selection sync into the detail strip, Open
+   Reference / Open Target buttons with an `.ass/.ssa/.srt` filter. Rows are
+   refreshed **in place** on `Changed`: track the bound cell widgets and update
+   their text and classes; never rebuild the store. `Cli.RunEditor` creates the
+   `Gtk.Application`, opens the window with the given files and returns 2 on
+   close (nothing saved yet), 1 with a stderr message when GTK cannot open a
+   display. An `internal` test surface (`InternalsVisibleTo` for
+   `SubsRetimer.Tests` and `SubsRetimer.UiTests`) exposes load, select and
+   the row-state query the tests need.
+3. Time Shift button (`ShiftToMatch` from the selected pair, enabled only with
+   both selections), Undo/Redo, `*` in the title when dirty, Save to
+   `<name>_retimed.<ext>` and Save As with that name preset, saved paths
+   collected so `RunEditor` prints them under `--print-output` and exits 0,
+   close prompt when dirty (`Gtk.AlertDialog`, Save / Discard / Cancel).
+4. `Gio.SimpleAction` menu (Open Reference, Open Target, Save, Save As, Undo,
+   Redo, Time Shift, Auto Align placeholder, Help, About), accelerators through
+   `SetAccelsForAction`, a key controller in the **capture** phase for
+   Left/Right (closest line on the other side), Ctrl+Up/Down (previous/next
+   orange row and its counterpart), Enter (Time Shift); right-click = closest
+   line, middle-click = Time Shift, through `Gtk.GestureClick.SetButton`.
+5. Auto Align button and menu item: `AutoAlign.Compute` + `Apply`, one undo
+   step per breakpoint, status line with the CLI's `Describe` text.
+6. `SubsRetimer.UiTests`: port of `subs2srs.UiTests/Harness` (GTK thread
+   fixture, `Pump`, `Screenshot`, leak-checking scope), tests that call the
+   window's internal surface for the behaviours of phases 2 to 5,
+   `SUBSRETIMER_UITEST_ARTIFACTS=<dir>` for PNGs. The CI job is added by the
+   lead from the agent's report.
+7. `Gtk.DrawingArea` + Cairo timeline: two rows of bars over the visible
+   window, scale ticks and labels, active lines highlighted, zoom, left-click
+   advances the target selection, right-click goes back, middle-click shifts;
+   a one-to-one port of the original `ChartSubs.cs`. With UI tests.
+8. Try file drops: `GObject.Type.String` (`text/plain` beside `text/uri-list`)
+   and `Gdk.FileList` through `Value.GetBoxed`. Keep it only if it works
+   cleanly in 0.7; otherwise record why in the report and leave drops out.
+9. Drop `NoDisplay` from the desktop file, add an icon, adapt subs2srs's
+   `dist/windows/bundle-gtk.ps1` and `smoke.ps1`; the release workflow on
+   `v*` tags is added by the lead.
+10. README status, CHANGELOG, this document's "Known limitations and open
+    points", the subs2srs docs line that says the editor is not ported
+    (separate repository: reported, done by the lead).
+
+## Open defaults
+
+Chosen by the lead where the original tool gave no guidance; change if wrong:
+
+- Window title `Subs Re-Timer`, application id `io.github.jhhr.subsretimer`.
+- Row colours: orange `#FFD8A8`, gray `#E0E0E0`, both with `color: #1A1A1A`;
+  overlap background green `#C8F0C8` / red `#F5C0C0`.
+- Default window size 1100 × 700.
