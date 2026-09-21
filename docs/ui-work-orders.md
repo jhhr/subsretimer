@@ -203,7 +203,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 
 ## 4. Phases
 
-Done: 1, 2, 3, 4, 5, 6, 7, 8.
+Done: 1, 2, 3, 4, 5, 6, 7, 8, 9.
 
 ### 1 — Core: change notification and gap navigation
 
@@ -588,3 +588,29 @@ No reader for a value's GType is bound either:
 value), and it is how `DropFile` also takes text — paths or URIs, one a line.
 
 Left open: a real drag is a manual check, as keys and clicks are.
+
+### Phase 9 — 2026-09-21 — `dist: give the tool the original Subs Re-Timer icon`, `dist: bundle the GTK runtime for a self-contained Windows build`
+
+Built: `assets/` (the original tool's red R: `subsretimer.ico` + 16/32/48 PNGs,
+`README.md` naming the origin and GPL-3), a conditional `<ApplicationIcon>`
+(verified embedded in a cross-published exe), `RetimerWindow.SetIconName` with
+a UI test, `NoDisplay` dropped and the PNGs installed to
+`share/icons/hicolor/<n>x<n>/apps/subsretimer.png`
+by `make install` / removed by `uninstall`. `dist/windows/bundle-gtk.ps1`,
+`smoke.ps1`, `THIRD-PARTY-README.txt`, `make publish-windows`, the `win-x64`
+`RuntimeIdentifiers`, and `SubsRetimer/WindowsRuntimeSetup.cs` called first in
+`Main`. Suites: 84 and 25 passed.
+
+Choices / deviations: `OutputType` stays `Exe` everywhere (ordered), so a
+console window accompanies the editor on Windows. `WindowsRuntimeSetup` is new
+code this phase had to add: without `GSETTINGS_SCHEMA_DIR` and friends
+`gtk_init()` aborts in the bundle. One name, `subsretimer`, ties the desktop
+entry, the window's icon name and the installed PNGs together, and the bundle
+copies the PNGs into its own `share\icons\hicolor`.
+
+The next phase must know: `smoke.ps1` does not open a window — a console
+process's `MainWindowHandle` is its console, so that check would pass with no
+GTK at all; it checks the bundle layout, `--version` and `--auto` instead. GTK
+starting from the bundle is a manual check, and this box has no PowerShell.
+
+Left open: `.github/workflows/release.yml` is in the report (not editable).

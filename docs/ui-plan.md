@@ -164,7 +164,10 @@ leaves the tree building, the tests green and committed on `ui-editor`.
 8. **Drag-and-drop spike.** Done 2026-09-21 (`gtk: load a subtitle file
    dropped on either pane`, `tests: cover the dropped-file handler with UI
    tests`); drops kept, through `GFile`. A real drag is still a manual check.
-9. **Packaging: desktop file, icon, Windows bundle.** Not started.
+9. **Packaging: desktop file, icon, Windows bundle.** Done 2026-09-21
+   (`dist: give the tool the original Subs Re-Timer icon`, `dist: bundle the
+   GTK runtime for a self-contained Windows build`); the release workflow on
+   `v*` tags is still the lead's to add, from the phase report.
 10. **Documentation pass.** Not started.
 
 Phases 1 to 5 are the useful product and can be built and smoke-tested
