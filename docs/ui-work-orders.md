@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 8)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 9)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -167,7 +167,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - After phase 6 (lead): `IsDirty` is no longer a sticky flag but "undo depth differs
   from the clean depth" (set on load and save, -1 once unreachable), so undoing back to
   the loaded or saved state clears the star.
-- `SubsRetimer.UiTests` (xUnit, 24 tests, `[GtkFact]` skips every test when
+- `SubsRetimer.UiTests` (xUnit, 25 tests, `[GtkFact]` skips every test when
   `EditorHost.CanOpenDisplay()` is false): `Harness/GtkFixture` (one GTK thread,
   `RunOnGtk`/`RunOnGtkAsync`), `Pump` (`IdleAsync`, `FramesAsync`, `SettleAsync`,
   `WaitUntilAsync`; never settle on a window an action may have destroyed, use
@@ -192,7 +192,16 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   the test seam (`DropSignalArgs` cannot be hand-built), `PathFromDrop` takes a `GFile`
   or the first line of text (path or `file://` URI); several files → the first only.
   `DropTargetFor(side)`; pane hints say "Open or drop here". `Gdk.FileList` cannot be
-  read in 0.7 and `DropTarget` has no `SetGtypes`. `Tests/WindowDropTests.cs`, 4 tests. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  read in 0.7 and `DropTarget` has no `SetGtypes`. `Tests/WindowDropTests.cs`, 4 tests.
+- Since phase 9: `assets/` (the original's icon, GPL-3), `ApplicationIcon` and
+  `RuntimeIdentifiers linux-x64;win-x64` in the csproj (`OutputType` stays `Exe`: the
+  CLI needs a real stdout, so a console accompanies the editor on Windows),
+  `RetimerWindow.SetIconName("subsretimer")` with a UI test, hicolor icon install in the
+  `Makefile`, `dist/windows/bundle-gtk.ps1` + `smoke.ps1` (smoke checks the bundle layout,
+  `--version` and `--auto`; it does not start the editor), `make publish-windows`,
+  `SubsRetimer/WindowsRuntimeSetup.cs` (sets XDG/GSettings/pixbuf/GSK variables when the
+  bundle layout is present, first thing in `Main`), `.github/workflows/release.yml`
+  (Windows zip on `v*` tags, lead). Neither PowerShell script has run yet: no `pwsh` here. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
