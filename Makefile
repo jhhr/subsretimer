@@ -34,3 +34,4 @@ clean:
 	dotnet clean $(PROJ) -c Release 2>/dev/null || true
 	rm -rf SubsRetimer/bin SubsRetimer/obj SubsRetimer.Core/bin SubsRetimer.Core/obj
 	rm -rf SubsRetimer.Tests/bin SubsRetimer.Tests/obj
+	rm -rf SubsRetimer.Gtk/bin SubsRetimer.Gtk/obj

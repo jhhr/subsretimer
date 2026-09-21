@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 1)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 2)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -122,15 +122,33 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   `Apply`, `Describe`).
 - `SubsRetimer` (executable `subsretimer`): `Cli.Parse/Run/RunAuto/RunEditor`, exit
   codes 0 saved / 2 nothing saved / 1 error, stdout carries only saved paths under
-  `--print-output`. `RunEditor` is a stub that exits 1.
-- `SubsRetimer.Tests`: xUnit, 66 tests, `Fixtures.Lines` (periodic) and
+  `--print-output`. `RunEditor` loads the given files with `LoadChecked`, asks
+  `Cli.CanOpenDisplay()` (exit 1 + message when false), runs `Cli.RunWindow(reference,
+  target)` inside a catch-all (exit 1 + message), and returns 0 when the returned saved
+  paths are non-empty, else 2. Both are `internal static Func` seams that `CliTests`
+  swaps and restores in a `finally`; nothing under `dotnet test` may start GTK
+  (`Gtk.Module.Initialize()` exits a display-less process).
+- `SubsRetimer.Gtk` (assembly name; namespace `SubsRetimer.Editor`): `EditorHost`
+  (`CanOpenDisplay` = `Gdk.Module.Initialize()` + `Gdk.Display.Open(null)`; `Run` creates
+  the `Gtk.Application` and returns `window.SavedPaths`), `RetimerWindow :
+  Gtk.ApplicationWindow` (owns the `RetimerEngine`, subscribes to `Changed` once, top
+  strip, `Gtk.Paned` with a `LineListView` per side, detail strip; internal surface:
+  `Engine`, `SavedPaths`, `LoadReference/LoadTarget(path, enc?)`, `SetFile(side, file)`,
+  `SelectReference/SelectTarget(i)`, `SelectedReference/SelectedTarget` (-1 = none),
+  `RowState(side, i)`, `Counters(side)`, `DetailSummary`, `BoundStartText(side, i)`,
+  `StoreRebuilds`), `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
+  place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
+  `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
+  `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
+- `SubsRetimer.Tests`: xUnit, 69 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
-- No GTK project yet. No UI tests yet.
+- No UI tests yet (phase 6). Smoke runs use a throwaway driver under Xvfb.
 
 ## 4. Phases
 
-Done: 1.
+Done: 1, 2.
 
 ### 1 — Core: change notification and gap navigation
 
