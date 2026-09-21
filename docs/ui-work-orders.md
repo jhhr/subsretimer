@@ -649,3 +649,29 @@ and `bundle-gtk.ps1`.
 
 Left open: `KeyTable` lists no timeline click or zoom button, so Help is
 thinner than the README there. In the report, with two smaller finds.
+
+### Phase 11 — 2026-09-21 — `gtk: ask before a new target replaces unsaved changes`, `cli: print each saved path as the editor writes it`, `gtk: list the timeline's bindings in the key table`, `build: keep the version in one Directory.Build.props`, `docs: record the phase 11 fixes`
+
+Built: (1) `RetimerWindow.OpenPathAsync(side, path)`, the way in for Open and
+for drops, asks `ConfirmReplaceTarget()` before a new **target** replaces
+unsaved changes: `AskAboutUnsavedChanges` again, so `CloseChoice` drives it;
+Cancel and a failed Save keep the target, `_prompting` allows one prompt at a
+time, `LoadPath` loads. 6 UI tests in `WindowReplaceTests.cs`.
+(2) `EditorHost.Run(reference, target, onSaved)`: the window's `PathSaved`
+fires from `SaveTo` for each new path and `RunEditor` passes a writing-and-
+flushing lambda under `--print-output`, while the returned list still sets the
+exit code. `Cli.RunWindow` and the CLI tests take the third argument.
+(3) six timeline lines in `KeyTable`, matched in the README table (18
+entries, compared one by one). (4) `Directory.Build.props` with `Version`,
+`Authors`, `Copyright` and the licence.
+
+Choices / deviations: `SubsRetimer.Core.csproj` carried the same duplicated
+metadata as the two csproj the order named, so all three lost it. A drop
+signal cannot await the prompt: `DropFile` answers true at once for a dirty
+target and loads (or not) after the answer; noted in the plan. `LoadReference`
+/ `LoadTarget` stay prompt-free, they are the tests' setup.
+
+The next phase must know: `-p:Version=9.9.9` on publish still beats the props
+file (checked: exe and Gtk assembly both 9.9.9). Suites: 84 and 31 passed.
+
+Left open: nothing.

@@ -115,8 +115,10 @@ seconds with the middle one.
 **Saving.** Save (Ctrl+S) writes `<name>_retimed.<ext>` beside the target
 file; Save As (Ctrl+Shift+S) offers that name elsewhere. The title carries the
 target's name and a `*` while there are unsaved changes, and closing with
-changes asks Save / Discard / Cancel. Under `--print-output` every path the
-window saved is printed when it closes.
+changes asks Save / Discard / Cancel. Opening or dropping a **new target**
+over unsaved changes asks the same question first; a new reference never does,
+since the edits are the target's. Under `--print-output` each saved path is
+printed as soon as the file is written.
 
 ### Keys and mouse
 
@@ -136,15 +138,22 @@ The window shows this table under Help → Help.
 | Right-click (in a list) | Select the closest line on the other side |
 | Middle-click (in a list) | Time Shift |
 | Drop a file (on a pane) | Load it as that side's subtitles |
+| Left-click (in the timeline) | Select the next target line and its closest counterpart |
+| Right-click (in the timeline) | Select the previous target line and its closest counterpart |
+| Middle-click (in the timeline) | Time Shift |
+| Left-click + / - (in the timeline) | Zoom in / out by 2 seconds |
+| Right-click + / - (in the timeline) | Zoom in / out by 10 seconds |
+| Middle-click + / - (in the timeline) | Zoom all the way in or out (4 to 120 seconds) |
 
 ## Contract for other programs
 
 subs2srs launches `subsretimer` and reads the result back. The rules it
 relies on:
 
-- With `--print-output`, **stdout carries only saved paths**, one per line:
-  `--auto` flushes its path as the file is written, the editor prints what it
-  saved when the window closes. Everything else goes to stderr.
+- With `--print-output`, **stdout carries only saved paths**, one per line,
+  each printed and flushed as that file is written — in both modes, so the
+  editor reports a save while its window is still open. Everything else goes
+  to stderr.
 - Exit status `0`: at least one file was saved. `2`: nothing was saved
   (editor closed without saving, or a file had no timed lines). `1`: error,
   message on stderr — including no display to open the editor on.
@@ -193,6 +202,10 @@ Installs to `/usr/lib/subsretimer/`, launcher to `/usr/bin/subsretimer`, the
 desktop entry to `/usr/share/applications/` and the icon to
 `/usr/share/icons/hicolor/<size>x<size>/apps/` (refreshing the icon cache is
 left to the packager). `sudo make uninstall` removes them again.
+
+On Windows there is nothing to install: a self-contained zip with the GTK
+runtime inside is attached to each GitHub release (built by
+`.github/workflows/release.yml`) — unzip it anywhere and run `subsretimer.exe`.
 
 ## Credits
 

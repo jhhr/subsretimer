@@ -9,9 +9,12 @@
 - A subtitle file dropped on either pane is loaded as that side's file.
 - The tool now carries the original Subs Re-Timer icon and its desktop entry appears in application menus; `make install` installs both.
 - Windows: `make publish-windows` produces a self-contained `win-x64` build with the GTK 4 runtime bundled, and a `v*` tag publishes it as a zip.
+- With `--print-output` the editor prints each saved path the moment the file is written, as `--auto` does, instead of only when the window closes.
 
 **Fixed:**
 - Undoing back to the loaded or saved state no longer leaves the file marked as changed.
+- Opening or dropping a new target file over unsaved changes now asks Save / Discard / Cancel instead of throwing the changes away without a word.
+- Help → Help now also lists the timeline's mouse buttons and its zoom buttons.
 
 ## 0.1.0
 

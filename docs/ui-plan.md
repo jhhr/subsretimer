@@ -33,10 +33,11 @@ what it does not do and what no test on this machine could check.
 - The class library `SubsRetimer.Gtk` (namespace `SubsRetimer.Editor`) holds
   `RetimerWindow` and its widgets and is referenced by the `subsretimer`
   executable. `Cli.RunEditor` opens the window through `EditorHost`, which
-  creates the `Gtk.Application`, and keeps the stdout contract: the paths the
-  window saved are printed when `--print-output` is set (all of them when it
-  closes, since that is when `RunEditor` gets them); exit 0 if anything was
-  saved, 2 if the window closed without saving. Nothing changed on the
+  creates the `Gtk.Application`, and keeps the stdout contract: under
+  `--print-output` each path is written and flushed as the window saves it
+  (since phase 11 `EditorHost.Run` takes an `onSaved` callback that `SaveTo`
+  calls), while the returned list still decides the exit code — 0 if anything
+  was saved, 2 if the window closed without saving. Nothing changed on the
   subs2srs side; its launcher already handled both.
 - The window is a view over `RetimerEngine` and never computes timing itself.
   Core already provides sorted lines, `ShiftFrom`, `ShiftToMatch`,
@@ -46,6 +47,10 @@ what it does not do and what no test on this machine could check.
   `Version` counter, so the window knows when to recolour, and the static
   `NextLargeGap(flags, from)` / `PreviousLargeGap(flags, from)`, so orange-row
   navigation is testable without GTK.
+- `Directory.Build.props` at the repository root holds the one `<Version>`
+  (and the shared `Authors`/`Copyright`/licence) for every project, so the
+  command line's version option and the editor's About box cannot disagree.
+  `release.yml` still overrides it with `-p:Version=` when it publishes.
 
 ## APIs verified in GirCore 0.7.0 (by reflection, 2026-09-21)
 
@@ -94,7 +99,8 @@ where a shift is needed, gray rows have no counterpart in the other file.
   and Ctrl+Down jump to the previous/next orange row and select its closest
   counterpart. Enter and middle-click do Time Shift. Ctrl+Z/Y undo and redo.
   Ctrl+S saves to `<name>_retimed.<ext>`; Ctrl+Shift+S opens Save As with that
-  name preset. Closing with unsaved changes asks. Title shows `*` when dirty.
+  name preset. Closing with unsaved changes asks, and so does opening or
+  dropping a new target over them. Title shows `*` when dirty.
 
 Two GTK4 traps shaped the code:
 
@@ -194,6 +200,11 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    release workflow on `v*` tags (`build: publish a Windows zip on v* tags`).
 10. **Documentation pass.** Done 2026-09-21 (`docs: describe the editor in the
     README, changelog and plan`).
+11. **Corrective fixes after the documentation pass.** Done 2026-09-21
+    (`gtk: ask before a new target replaces unsaved changes`, `cli: print each
+    saved path as the editor writes it`, `gtk: list the timeline's bindings in
+    the key table`, `build: keep the version in one Directory.Build.props`,
+    `docs: record the phase 11 fixes`).
 
 Phases 1 to 5 were the useful product and could be built and smoke-tested
 headless; phase 6 came before phase 7 so the chart landed with tests.
@@ -300,9 +311,12 @@ checklist below:
 - `OutputType` stays `Exe` on Windows too, because `--auto` has to reach a
   real stdout, so a console window accompanies the editor when it is started
   from Explorer. subs2srs launches it with the console hidden.
-- Help's `KeyTable` covers the lists' keys and buttons but not the timeline's
-  clicks or its zoom buttons; the README describes those in prose. Keep the
-  two in step if either gains a binding.
+- Help's `KeyTable` lists the lists' keys and buttons and, since phase 11, the
+  timeline's clicks and its zoom buttons. The README's "Keys and mouse" table
+  is the same 18 entries; keep the two in step if either gains a binding.
+- Replacing the target asks about unsaved changes (phase 11). A drop cannot
+  wait for the answer — `DropFile` accepts the drop at once and loads the file
+  only after the prompt — so a refused drop still looks accepted to GTK.
 
 ### Manual checklist
 
@@ -331,8 +345,10 @@ machine with no MSYS2 and no GTK of its own.
    status line reports the segments and the title's `*` disappears at the
    loaded state.
 8. Save (Ctrl+S), Save As elsewhere, then close with unsaved changes and try
-   Cancel, Discard and Save in turn. With `--print-output`, stdout after the
-   window closes carries each saved path once and nothing else.
+   Cancel, Discard and Save in turn; shift again and drop another target on
+   the right pane for the same three answers. With `--print-output`, each
+   saved path appears on stdout as the file is written, once, and nothing else
+   does.
 9. Linux: `sudo make install`, then start Subs Re-Timer from the desktop menu
    and check its icon. Windows: the bundled `subsretimer.exe` opens the window
    at all (the check `smoke.ps1` cannot make), shows the red R icon, and still
