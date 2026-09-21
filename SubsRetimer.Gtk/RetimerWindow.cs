@@ -5,6 +5,7 @@
 //  Port of Subs Re-Timer 1.0's main form to GTK 4.
 
 using System.Globalization;
+using System.Reflection;
 using System.Text;
 using SubsRetimer.Core;
 
@@ -69,6 +70,7 @@ namespace SubsRetimer.Editor
       SetDefaultSize(1100, 700);
 
       RetimerStyles.Install();
+      BuildActions(application);   // the menu built below points at these
       SetChild(BuildLayout());
 
       _engine.Changed += OnEngineChanged;
@@ -195,11 +197,140 @@ namespace SubsRetimer.Editor
     /// <summary>How often either store was rebuilt. Only loading a file may increase it.</summary>
     internal int StoreRebuilds => _referenceList.StoreRebuilds + _targetList.StoreRebuilds;
 
+    // ── Menu, actions and accelerators ───────────────────────────────────
+
+    // The window carries the actions, so their detailed names are win.<name>.
+    internal const string ActionOpenReference = "open-reference";
+    internal const string ActionOpenTarget = "open-target";
+    internal const string ActionSave = "save";
+    internal const string ActionSaveAs = "save-as";
+    internal const string ActionQuit = "quit";
+    internal const string ActionUndo = "undo";
+    internal const string ActionRedo = "redo";
+    internal const string ActionTimeShift = "time-shift";
+    internal const string ActionAutoAlign = "auto-align";
+    internal const string ActionHelp = "help";
+    internal const string ActionAbout = "about";
+
+    private readonly Dictionary<string, Gio.SimpleAction> _actions = new();
+
+    /// <summary>The keys and mouse buttons the window answers to: what Help shows.</summary>
+    internal const string KeyTable =
+      "Ctrl+O                Open the reference file\n" +
+      "Ctrl+Shift+O          Open the target file\n" +
+      "Ctrl+S                Save as <name>_retimed.<ext>\n" +
+      "Ctrl+Shift+S          Save As...\n" +
+      "Ctrl+Z / Ctrl+Y       Undo / Redo\n" +
+      "Ctrl+Q                Quit\n" +
+      "\n" +
+      "In a list:\n" +
+      "Left / Right          Select the closest line on the other side and go there\n" +
+      "Ctrl+Up / Ctrl+Down   Previous / next orange row and its closest counterpart\n" +
+      "Enter                 Time Shift: move the target onto the selected reference line\n" +
+      "Right-click           Select the closest line on the other side\n" +
+      "Middle-click          Time Shift";
+
+    /// <summary>What About shows: the name, the version and the licence.</summary>
+    internal static string AboutText =>
+      string.Format(
+        CultureInfo.InvariantCulture,
+        "{0} {1}\n\nRe-time a subtitle file to match the timings of another.\n" +
+        "Licensed under the GNU General Public License version 3 or later (GPL-3.0-or-later).",
+        WindowTitle, Version);
+
+    /// <summary>
+    /// The editor's version. <c>Cli.Version</c> lives in the executable,
+    /// which this library cannot reference, so the same attribute is read
+    /// from this assembly; both carry the repository's version.
+    /// </summary>
+    private static string Version =>
+      typeof(RetimerWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+        ?.InformationalVersion.Split('+')[0]
+      ?? typeof(RetimerWindow).Assembly.GetName().Version?.ToString(3)
+      ?? "0.0.0";
+
+    /// <summary>
+    /// The window's actions and the accelerators that reach them. Each one
+    /// calls the very method its button calls; only the way in is new here.
+    /// </summary>
+    private void BuildActions(Gtk.Application application)
+    {
+      Register(ActionOpenReference, () => OpenFile(Side.Reference), "<Control>o");
+      Register(ActionOpenTarget, () => OpenFile(Side.Target), "<Control><Shift>o");
+      Register(ActionSave, () => Save(), "<Control>s");
+      Register(ActionSaveAs, SaveAsDialog, "<Control><Shift>s");
+      Register(ActionQuit, RequestClose, "<Control>q");
+      Register(ActionUndo, () => Undo(), "<Control>z");
+      Register(ActionRedo, () => Redo(), "<Control>y");
+      // Enter runs Time Shift, but only while a list has the focus, so it is
+      // a key of the lists and not an accelerator of the whole window.
+      Register(ActionTimeShift, TimeShift, null);
+      Register(ActionAutoAlign, () => { }, null).SetEnabled(false);   // filled in by phase 5
+      Register(ActionHelp, ShowHelp, null);
+      Register(ActionAbout, ShowAbout, null);
+
+      Gio.SimpleAction Register(string name, System.Action handler, string? accelerator)
+      {
+        var action = Gio.SimpleAction.New(name, null!);
+        action.OnActivate += (_, _) => handler();
+        AddAction(action);
+        _actions[name] = action;
+        if (accelerator != null)
+          application.SetAccelsForAction("win." + name, new[] { accelerator });
+        return action;
+      }
+    }
+
+    private Gtk.Widget BuildMenuBar()
+    {
+      var file = Gio.Menu.New();
+      file.Append("Open Reference...", "win." + ActionOpenReference);
+      file.Append("Open Target...", "win." + ActionOpenTarget);
+      file.Append("Save", "win." + ActionSave);
+      file.Append("Save As...", "win." + ActionSaveAs);
+      file.Append("Quit", "win." + ActionQuit);
+
+      var edit = Gio.Menu.New();
+      edit.Append("Undo", "win." + ActionUndo);
+      edit.Append("Redo", "win." + ActionRedo);
+      edit.Append("Time Shift", "win." + ActionTimeShift);
+      edit.Append("Auto Align", "win." + ActionAutoAlign);
+
+      var help = Gio.Menu.New();
+      help.Append("Help", "win." + ActionHelp);
+      help.Append("About", "win." + ActionAbout);
+
+      var menu = Gio.Menu.New();
+      menu.AppendSubmenu("File", file);
+      menu.AppendSubmenu("Edit", edit);
+      menu.AppendSubmenu("Help", help);
+      return Gtk.PopoverMenuBar.NewFromModel(menu);
+    }
+
+    /// <summary>Fire the window action <paramref name="name"/> the way the menu does. False when it is unknown or disabled.</summary>
+    internal bool ActivateAction(string name)
+    {
+      if (LookupAction(name) is not Gio.SimpleAction action || !action.GetEnabled()) return false;
+      action.Activate(null!);
+      return true;
+    }
+
+    private void SetActionEnabled(string name, bool enabled)
+    {
+      if (_actions.TryGetValue(name, out var action)) action.SetEnabled(enabled);
+    }
+
+    private void ShowHelp() => ShowMessage("Keyboard and mouse", KeyTable);
+
+    private void ShowAbout() => ShowMessage(WindowTitle, AboutText);
+
     // ── Layout ───────────────────────────────────────────────────────────
 
     private Gtk.Widget BuildLayout()
     {
       var root = Gtk.Box.New(Gtk.Orientation.Vertical, 0);
+
+      root.Append(BuildMenuBar());
 
       _average.SetMarginTop(6);
       _average.SetMarginBottom(6);
@@ -265,8 +396,152 @@ namespace SubsRetimer.Editor
       scroller.SetVisible(false);   // shown once a file is loaded
       pane.Append(scroller);
 
+      AttachInput(side);
       return pane;
     }
+
+    // ── Keys and mouse buttons on the lists ──────────────────────────────
+
+    /// <summary>
+    /// The keys and mouse buttons of one list. The key controller sits in the
+    /// <em>capture</em> phase: <c>ColumnView</c> binds Up and Down with every
+    /// modifier, so a bubble-phase controller never sees Ctrl+Up.
+    /// </summary>
+    private void AttachInput(Side side)
+    {
+      var view = ListFor(side).View;
+
+      var keys = Gtk.EventControllerKey.New();
+      keys.SetPropagationPhase(Gtk.PropagationPhase.Capture);
+      keys.OnKeyPressed += (_, args) => OnListKey(side, args.Keyval, args.State);
+      view.AddController(keys);
+
+      var closest = Gtk.GestureClick.New();
+      closest.SetButton(3);   // right: the closest line on the other side
+      closest.OnPressed += (_, args) => OnListClick(side, args.X, args.Y, timeShift: false);
+      view.AddController(closest);
+
+      var shift = Gtk.GestureClick.New();
+      shift.SetButton(2);   // middle: Time Shift
+      shift.OnPressed += (_, args) => OnListClick(side, args.X, args.Y, timeShift: true);
+      view.AddController(shift);
+    }
+
+    /// <summary>
+    /// A key pressed while <paramref name="side"/>'s list has the focus. True
+    /// means it was handled here; false leaves the list its own navigation.
+    /// </summary>
+    private bool OnListKey(Side side, uint key, Gdk.ModifierType state)
+    {
+      bool control = (state & Gdk.ModifierType.ControlMask) != 0;
+      switch (key)
+      {
+        // Sideways is "the other list", from either of them: the two lists
+        // are read side by side and the closest line is the counterpart.
+        case Gdk.Constants.KEY_Left:
+        case Gdk.Constants.KEY_KP_Left:
+        case Gdk.Constants.KEY_Right:
+        case Gdk.Constants.KEY_KP_Right:
+          if (control) return false;
+          SelectClosestOnOtherSide(side, moveFocus: true);
+          return true;
+
+        case Gdk.Constants.KEY_Up:
+        case Gdk.Constants.KEY_KP_Up:
+          if (!control) return false;
+          JumpToGap(side, forward: false);
+          return true;
+
+        case Gdk.Constants.KEY_Down:
+        case Gdk.Constants.KEY_KP_Down:
+          if (!control) return false;
+          JumpToGap(side, forward: true);
+          return true;
+
+        case Gdk.Constants.KEY_Return:
+        case Gdk.Constants.KEY_KP_Enter:
+          if (!CanTimeShift) return false;
+          TimeShift();
+          return true;
+
+        default:
+          return false;
+      }
+    }
+
+    /// <summary>A right or middle click on a list: the clicked row is selected first, then the action runs.</summary>
+    private void OnListClick(Side side, double x, double y, bool timeShift)
+    {
+      int row = ListFor(side).IndexAt(x, y);
+      if (row >= 0) ListFor(side).Select(row);
+
+      if (timeShift)
+      {
+        TimeShift();
+        ScrollToSelection();
+      }
+      else if (SelectClosestOnOtherSide(side) < 0)
+      {
+        ScrollToSelection();
+      }
+    }
+
+    // ── Moving around the two lists ──────────────────────────────────────
+
+    /// <summary>
+    /// Select, on the other side, the line whose start is closest to the one
+    /// selected on <paramref name="from"/>. Returns the row selected, or -1
+    /// when this side has no selection or the other side is empty.
+    /// </summary>
+    internal int SelectClosestOnOtherSide(Side from) => SelectClosestOnOtherSide(from, moveFocus: false);
+
+    private int SelectClosestOnOtherSide(Side from, bool moveFocus)
+    {
+      var line = ListFor(from).SelectedLine;
+      if (line == null) return -1;
+
+      Side other = Other(from);
+      int index = RetimerEngine.ClosestIndex(line.Start, LinesOf(other));
+      if (index < 0) return -1;
+
+      ListFor(other).Select(index);
+      ScrollToSelection(moveFocus ? other : null);
+      return index;
+    }
+
+    /// <summary>
+    /// Select the previous or next orange (large gap) row of
+    /// <paramref name="side"/> and its closest counterpart on the other side.
+    /// Returns the row selected, or -1 when there is no such row, in which
+    /// case nothing moves.
+    /// </summary>
+    internal int JumpToGap(Side side, bool forward)
+    {
+      var list = ListFor(side);
+      bool[] flags = list.GapFlags;   // the colours the window already computed
+      int index = forward
+        ? RetimerEngine.NextLargeGap(flags, list.Selected)
+        : RetimerEngine.PreviousLargeGap(flags, list.Selected);
+      if (index < 0) return -1;
+
+      list.Select(index);
+      // The counterpart scrolls both lists; with nothing to select over there
+      // this row still has to come into view.
+      if (SelectClosestOnOtherSide(side) < 0) ScrollToSelection();
+      return index;
+    }
+
+    /// <summary>Bring both selected rows into view; <paramref name="focus"/> also moves the keyboard focus into that list.</summary>
+    private void ScrollToSelection(Side? focus = null)
+    {
+      _referenceList.ScrollTo(SelectedReference, focus == Side.Reference);
+      _targetList.ScrollTo(SelectedTarget, focus == Side.Target);
+    }
+
+    private IReadOnlyList<RetimerLine> LinesOf(Side side) =>
+      side == Side.Reference ? _engine.ReferenceLines : _engine.TargetLines;
+
+    private static Side Other(Side side) => side == Side.Reference ? Side.Target : Side.Reference;
 
     private Gtk.Widget BuildDetailStrip()
     {
@@ -398,6 +673,14 @@ namespace SubsRetimer.Editor
       // name (or another format's encoding) is written.
       _save.SetSensitive(_engine.Target != null);
       _saveAs.SetSensitive(_engine.Target != null);
+
+      // The menu and the accelerators reach the same methods, so they are
+      // greyed out together with the buttons.
+      SetActionEnabled(ActionTimeShift, CanTimeShift);
+      SetActionEnabled(ActionUndo, _engine.CanUndo);
+      SetActionEnabled(ActionRedo, _engine.CanRedo);
+      SetActionEnabled(ActionSave, _engine.Target != null);
+      SetActionEnabled(ActionSaveAs, _engine.Target != null);
     }
 
     private void RefreshCounters()
@@ -616,7 +899,10 @@ namespace SubsRetimer.Editor
       }
     }
 
-    private void ShowError(string message, string detail)
+    private void ShowError(string message, string detail) => ShowMessage(message, detail);
+
+    /// <summary>A plain one-button dialog: an error, the key table or the About text.</summary>
+    private void ShowMessage(string message, string detail)
     {
       // GirCore 0.7 has no Gtk.AlertDialog.New().
       var dialog = new Gtk.AlertDialog();

@@ -38,6 +38,21 @@ namespace SubsRetimer.Tests
       Assert.Equal(-1, RetimerEngine.ClosestIndex(Ms(0), new List<RetimerLine>()));
     }
 
+    /// <summary>
+    /// The editor lands on this line when Left/Right, a right-click or a gap
+    /// jump asks for the counterpart of the selected one, so which way a tie
+    /// goes is a visible decision: the earlier line wins.
+    /// </summary>
+    [Fact]
+    public void ClosestIndex_HalfwayBetweenTwoLines_TakesTheEarlierOne()
+    {
+      var lines = Fixtures.Lines(10); // starts at 1000, 3500, 6000, ...
+      Assert.Equal(0, RetimerEngine.ClosestIndex(Ms(2250), lines));
+      Assert.Equal(1, RetimerEngine.ClosestIndex(Ms(4750), lines));
+      // A start exactly on a line is that line, not its predecessor.
+      Assert.Equal(1, RetimerEngine.ClosestIndex(Ms(3500), lines));
+    }
+
     [Fact]
     public void ShiftFrom_ShiftsTailOnly_AndTracksDirty()
     {

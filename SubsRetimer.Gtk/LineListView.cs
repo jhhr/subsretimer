@@ -142,6 +142,56 @@ namespace SubsRetimer.Editor
       else _selection.SetSelected((uint)index);
     }
 
+    /// <summary>
+    /// The orange-row flags the window last handed over. Gap navigation reads
+    /// them from here so that they are not computed a second time.
+    /// </summary>
+    internal bool[] GapFlags => _gap;
+
+    /// <summary>Bring row <paramref name="index"/> into view, optionally moving the keyboard focus to it.</summary>
+    internal void ScrollTo(int index, bool focus)
+    {
+      if (index < 0 || index >= _lines.Count) return;
+      // GirCore 0.7: the column and the scroll info are nullable in C and
+      // marshal fine as null here (measured), which means "no column, keep
+      // the list's own idea of where to put the row".
+      View.ScrollTo((uint)index, null!, focus ? Gtk.ListScrollFlags.Focus : Gtk.ListScrollFlags.None, null!);
+    }
+
+    /// <summary>
+    /// The row under a point in <see cref="View"/> coordinates, or -1 when
+    /// the point is not on a row. The widget under the point is picked and
+    /// its ancestors are compared with the cells that are bound right now;
+    /// GirCore hands back the same managed wrapper for a widget we made, so
+    /// reference equality identifies the cell.
+    /// </summary>
+    internal int IndexAt(double x, double y)
+    {
+      var widget = View.Pick(x, y, Gtk.PickFlags.Default);
+      for (int depth = 0; widget != null && depth < 8; depth++, widget = widget.GetParent())
+      {
+        // A point in the cell's padding picks the cell widget, whose first
+        // child is the box; a point on the text picks the label inside it.
+        int index = IndexOfCell(widget);
+        if (index >= 0) return index;
+        var child = widget.GetFirstChild();
+        if (child != null)
+        {
+          index = IndexOfCell(child);
+          if (index >= 0) return index;
+        }
+      }
+      return -1;
+    }
+
+    private int IndexOfCell(Gtk.Widget widget)
+    {
+      foreach (var column in _columns)
+        foreach (var (index, cell) in column.Bound)
+          if (ReferenceEquals(cell.Box, widget)) return index;
+      return -1;
+    }
+
     /// <summary>Show a different set of lines. The one place the store is rebuilt.</summary>
     internal void SetLines(IReadOnlyList<RetimerLine> lines)
     {
