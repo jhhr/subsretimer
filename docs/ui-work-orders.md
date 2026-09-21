@@ -623,3 +623,29 @@ GTK at all; it checks the bundle layout, `--version` and `--auto` instead. GTK
 starting from the bundle is a manual check, and this box has no PowerShell.
 
 Left open: `.github/workflows/release.yml` is in the report (not editable).
+
+### Phase 10 — 2026-09-21 — `docs: describe the editor in the README, changelog and plan`
+
+Built: `README.md`: the status says the editor works on Linux and Windows, a
+"Using the editor" section (opening files, the two lists and their colours,
+detail strip, Time Shift, Auto Align, timeline, saving, close prompt) with a
+key and mouse table copied from `KeyTable`, editor exit codes in the usage
+section, `make test-ui` and `make publish-windows` under Build, desktop entry
+and icons under Install. `CHANGELOG.md`: an Unreleased section, one line per
+user-visible change plus the `IsDirty` fix. `docs/ui-plan.md` is now the
+record: status, phase 10 done, the lead's CI and release workflow noted on
+phases 6 and 9, corrections (Dialogue column, in-place refresh, Quit, the
+timeline and drops in the window map, clean-depth `IsDirty`, the
+`GtkSynchronizationContext` that was not ported), "Known limitations and open
+points" completed and a nine-step manual checklist. No code touched; both
+suites re-run unchanged: 84 passed and 25 passed.
+
+Choices / deviations: the contract bullet claimed `--print-output` flushes
+each path as it is written; that holds for `--auto` only, the editor prints
+them when it closes, and the bullet now says so. subs2srs's README has no
+Windows build section to take wording from (that checkout has no `docs/` and
+no `dist/windows/`), so the MSYS2 note comes from this repository's `Makefile`
+and `bundle-gtk.ps1`.
+
+Left open: `KeyTable` lists no timeline click or zoom button, so Help is
+thinner than the README there. In the report, with two smaller finds.
