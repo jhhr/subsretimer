@@ -36,7 +36,34 @@ namespace SubsRetimer.Core
     /// <summary>True when the target has unsaved timing changes.</summary>
     public bool IsDirty { get; private set; }
 
-    public void LoadReference(SubtitleFile file) => Reference = file;
+    // ── Change notification ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Raised after any operation that changed what a view shows: loading a
+    /// file, a shift that moved lines, an undo or redo that did something,
+    /// and a save (which clears <see cref="IsDirty"/>). Not raised when the
+    /// operation did nothing, so a handler may repaint unconditionally.
+    /// </summary>
+    public event Action? Changed;
+
+    /// <summary>
+    /// Counts the changes reported by <see cref="Changed"/>. A view that
+    /// cannot subscribe (or that batches work) can compare this instead.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>Record one change and tell the subscribers. Called after the state is updated.</summary>
+    private void Bump()
+    {
+      Version++;
+      Changed?.Invoke();
+    }
+
+    public void LoadReference(SubtitleFile file)
+    {
+      Reference = file;
+      Bump();
+    }
 
     public void LoadTarget(SubtitleFile file)
     {
@@ -44,6 +71,7 @@ namespace SubsRetimer.Core
       _undo.Clear();
       _redo.Clear();
       IsDirty = false;
+      Bump();
     }
 
     // ── Shifting ─────────────────────────────────────────────────────────
@@ -69,6 +97,7 @@ namespace SubsRetimer.Core
         lines[i].End += delta;
       }
       IsDirty = true;
+      Bump();
     }
 
     /// <summary>The Time Shift button: shift from <paramref name="targetIndex"/> so it starts with reference line <paramref name="refIndex"/>.</summary>
@@ -81,6 +110,7 @@ namespace SubsRetimer.Core
       _redo.Push(Snapshot());
       Restore(_undo.Pop());
       IsDirty = true;
+      Bump();
       return true;
     }
 
@@ -90,6 +120,7 @@ namespace SubsRetimer.Core
       _undo.Push(Snapshot());
       Restore(_redo.Pop());
       IsDirty = true;
+      Bump();
       return true;
     }
 
@@ -113,6 +144,7 @@ namespace SubsRetimer.Core
       string path = outputPath ?? RetimerIO.DefaultOutputPath(Target.Path);
       RetimerIO.Save(Target, path);
       IsDirty = false;
+      Bump(); // the title and the saved-paths list follow IsDirty
       return path;
     }
 
@@ -183,6 +215,34 @@ namespace SubsRetimer.Core
         if (prev.HasValue && lines[i].Start - prev.Value > LargeGap) flags[i] = true;
       }
       return flags;
+    }
+
+    /// <summary>
+    /// First flagged index strictly after <paramref name="from"/>, or -1 when
+    /// there is none. <paramref name="from"/> may be -1 (nothing selected:
+    /// the first flagged index is returned) or beyond the end.
+    /// </summary>
+    public static int NextLargeGap(bool[] flags, int from)
+    {
+      ArgumentNullException.ThrowIfNull(flags);
+      if (from >= flags.Length - 1) return -1; // also keeps from + 1 from overflowing
+      for (int i = from < 0 ? 0 : from + 1; i < flags.Length; i++)
+        if (flags[i]) return i;
+      return -1;
+    }
+
+    /// <summary>
+    /// Last flagged index strictly before <paramref name="from"/>, or -1 when
+    /// there is none. <paramref name="from"/> may be -1 (nothing selected:
+    /// always -1) or beyond the end (the last flagged index is returned).
+    /// </summary>
+    public static int PreviousLargeGap(bool[] flags, int from)
+    {
+      ArgumentNullException.ThrowIfNull(flags);
+      if (from <= 0) return -1; // nothing is strictly before index 0
+      for (int i = Math.Min(from - 1, flags.Length - 1); i >= 0; i--)
+        if (flags[i]) return i;
+      return -1;
     }
 
     /// <summary>True for lines with no overlap in <paramref name="others"/> (gray rows). All false when either side is empty.</summary>

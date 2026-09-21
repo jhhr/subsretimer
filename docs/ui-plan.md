@@ -98,8 +98,9 @@ So that phases do not re-derive them:
   `LargeGapFlags(lines, firstBaseline?)` flags a line whose start is more than
   28 s after the previous line's start (the first line only against the other
   file's first start). `MismatchFlags(lines, others)` is true where
-  `BestOverlap` is 0. There is **no change notification** and no gap
-  navigation yet: phase 1 adds them.
+  `BestOverlap` is 0. Since phase 1 it also has `Changed` / `Version` (raised
+  by every operation that changed something) and the static
+  `NextLargeGap(flags, from)` / `PreviousLargeGap(flags, from)`.
 - `Cli.RunEditor` (`SubsRetimer/Cli.cs`) validates the given paths with
   `LoadChecked` then exits 1 with "not available in this build yet". The test
   `CliTests.Editor_NotAvailableYet_ExitsOne` pins that and changes in phase 2.
@@ -130,7 +131,8 @@ So that phases do not re-derive them:
 Work orders, rules and the hand-over log: `docs/ui-work-orders.md`. Each phase
 leaves the tree building, the tests green and committed on `ui-editor`.
 
-1. **Core: change notification and gap navigation.** Not started.
+1. **Core: change notification and gap navigation.** Done 2026-09-21
+   (`core: notify on change and navigate large gaps`).
 2. **Gtk skeleton: window, lists, colours, detail strip, `RunEditor`.**
    Not started.
 3. **Editing: Time Shift, undo/redo, dirty state, Save/Save As, close prompt.**

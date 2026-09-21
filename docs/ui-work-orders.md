@@ -301,3 +301,27 @@ Template:
     Choices / deviations: ...
     The next phase must know: ...
     Left open: ...
+
+### Phase 1 — 2026-09-21 — `core: notify on change and navigate large gaps`
+
+Built: in `RetimerEngine`, `public event Action? Changed` and `public int
+Version`, both driven by one private `Bump()` called *after* the state is
+updated, from `LoadReference`, `LoadTarget`, `ShiftFrom` (so also
+`ShiftToMatch`), `Undo` and `Redo` on their `true` return, and `Save`. Static
+`NextLargeGap(flags, from)` / `PreviousLargeGap(flags, from)` next to
+`LargeGapFlags`: first flagged index strictly after / before `from`, else -1;
+`from` may be -1 or out of range, a null `flags` throws. New test file
+`SubsRetimer.Tests/RetimerEngineChangeTests.cs`, 8 tests; suite 66 passed.
+
+Choices / deviations: `ShiftFrom` raises exactly when it pushed an undo
+snapshot, so a zero delta (including `ShiftToMatch` on already matching lines)
+is silent. `Save` raises on every successful save, not only a dirty one: the
+title, the saved-paths list and the Save button all follow a save. The plan
+line names the commit subject, not a hash: the doc is inside that commit.
+
+The next phase must know: subscribe to `Changed` in the window constructor and
+never poll; `Version` is for a view that batches. `Changed` runs synchronously
+on the caller's thread and handler exceptions are not caught — one that throws
+propagates out of `ShiftFrom`/`Save`.
+
+Left open: nothing from this phase. No GTK code, no display needed.
