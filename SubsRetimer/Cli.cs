@@ -209,7 +209,13 @@ Supported formats: .ass, .ssa, .srt";
         return ExitError;
       }
 
-      // Saving arrives with the editing phase; until then nothing is saved.
+      // The window collected every file it wrote; stdout carries those paths
+      // and nothing else, in the order they were saved.
+      if (o.PrintOutput)
+      {
+        foreach (string path in saved) stdout.WriteLine(path);
+        stdout.Flush();
+      }
       return saved.Count > 0 ? ExitSaved : ExitNothingSaved;
     }
   }

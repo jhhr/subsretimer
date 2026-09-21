@@ -195,6 +195,48 @@ namespace SubsRetimer.Tests
     }
 
     [Fact]
+    public void Editor_WindowSaved_PrintsEveryPathAndExitsZero()
+    {
+      var (rf, tg) = MakePair();
+      string first = Path.GetFullPath(RetimerIO.DefaultOutputPath(tg));
+      string second = Path.GetFullPath(Path.ChangeExtension(tg, ".copy.ass"));
+
+      var r = WithEditorSeams(
+        canOpenDisplay: () => true,
+        runWindow: (_, _) => new[] { first, second },
+        () => Run("--print-output", rf, tg));
+
+      Assert.Equal(Cli.ExitSaved, r.Code);
+      Assert.Equal(first + Environment.NewLine + second + Environment.NewLine, r.Out);
+    }
+
+    [Fact]
+    public void Editor_WithoutPrintOutput_SavedPathsStayOffStdout()
+    {
+      var (rf, tg) = MakePair();
+      var r = WithEditorSeams(
+        canOpenDisplay: () => true,
+        runWindow: (_, _) => new[] { Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) },
+        () => Run(rf, tg));
+
+      Assert.Equal(Cli.ExitSaved, r.Code);
+      Assert.Equal("", r.Out);
+    }
+
+    [Fact]
+    public void Editor_SavedNothing_PrintsNothingEvenWithPrintOutput()
+    {
+      var (rf, tg) = MakePair();
+      var r = WithEditorSeams(
+        canOpenDisplay: () => true,
+        runWindow: (_, _) => Array.Empty<string>(),
+        () => Run("--print-output", rf, tg));
+
+      Assert.Equal(Cli.ExitNothingSaved, r.Code);
+      Assert.Equal("", r.Out);
+    }
+
+    [Fact]
     public void Editor_WindowFailed_ExitsOneAndTheExceptionDoesNotEscape()
     {
       var (rf, tg) = MakePair();
