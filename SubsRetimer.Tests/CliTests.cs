@@ -144,21 +144,108 @@ namespace SubsRetimer.Tests
     }
 
     [Fact]
-    public void Editor_NotAvailableYet_ExitsOne()
+    public void Parse_EditorModeIsTheDefault()
+    {
+      var both = Cli.Parse(new[] { "a.srt", "b.ass" });
+      Assert.False(both.Auto);
+      Assert.Equal("a.srt", both.Reference);
+      Assert.Equal("b.ass", both.Target);
+
+      var none = Cli.Parse(Array.Empty<string>());
+      Assert.False(none.Auto);
+      Assert.Null(none.Reference);
+      Assert.Null(none.Target);
+    }
+
+    [Fact]
+    public void Editor_WithoutADisplay_ExitsOneWithMessage()
+    {
+      // Through the real executable, not in process: GTK initialisation is
+      // global to a process, and the native library reads DISPLAY itself, so
+      // Environment.SetEnvironmentVariable would not reach it.
+      var (rf, tg) = MakePair();
+      var r = RunProcess(new[] { rf, tg }, psi =>
+      {
+        psi.Environment["DISPLAY"] = "";
+        psi.Environment["WAYLAND_DISPLAY"] = "";
+      });
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.Contains("cannot open a display", r.Err);
+    }
+
+    [Fact]
+    public void Editor_WindowSavedNothing_ExitsTwo()
     {
       var (rf, tg) = MakePair();
-      var r = Run(rf, tg);
+      var r = WithEditorSeams(
+        canOpenDisplay: () => true,
+        runWindow: (reference, target) =>
+        {
+          // Both files are loaded before the window opens.
+          Assert.NotNull(reference);
+          Assert.NotNull(target);
+          return Array.Empty<string>();
+        },
+        () => Run(rf, tg));
+
+      Assert.Equal(Cli.ExitNothingSaved, r.Code);
+      Assert.Equal("", r.Out);
+    }
+
+    [Fact]
+    public void Editor_WindowFailed_ExitsOneAndTheExceptionDoesNotEscape()
+    {
+      var (rf, tg) = MakePair();
+      var r = WithEditorSeams(
+        canOpenDisplay: () => true,
+        runWindow: (_, _) => throw new InvalidOperationException("gtk fell over"),
+        () => Run(rf, tg));
+
       Assert.Equal(Cli.ExitError, r.Code);
-      Assert.Contains("--auto", r.Err);
+      Assert.Equal("", r.Out);
+      Assert.Contains("gtk fell over", r.Err);
+    }
+
+    /// <summary>Swap the editor seams for the duration of one call and put them back.</summary>
+    private static T WithEditorSeams<T>(
+      Func<bool> canOpenDisplay,
+      Func<SubtitleFile?, SubtitleFile?, IReadOnlyList<string>> runWindow,
+      Func<T> body)
+    {
+      var display = Cli.CanOpenDisplay;
+      var window = Cli.RunWindow;
+      try
+      {
+        Cli.CanOpenDisplay = canOpenDisplay;
+        Cli.RunWindow = runWindow;
+        return body();
+      }
+      finally
+      {
+        Cli.CanOpenDisplay = display;
+        Cli.RunWindow = window;
+      }
     }
 
     [Fact]
     public void RealProcess_HonoursStdoutContract()
     {
-      // The executable sits next to the test assembly because the test project references it.
+      var (rf, tg) = MakePair();
+      var r = RunProcess(new[] { "--auto", "--print-output", rf, tg });
+
+      Assert.Equal(0, r.Code);
+      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + "\n", r.Out);
+      Assert.Contains("saved", r.Err);
+    }
+
+    /// <summary>Run the real executable; it sits next to the test assembly because the test project references it.</summary>
+    private static (int Code, string Out, string Err) RunProcess(
+      IEnumerable<string> args, Action<ProcessStartInfo>? configure = null)
+    {
       string exe = Path.Combine(AppContext.BaseDirectory, "subsretimer.dll");
       Assert.True(File.Exists(exe), exe);
-      var (rf, tg) = MakePair();
 
       var psi = new ProcessStartInfo("dotnet")
       {
@@ -166,15 +253,15 @@ namespace SubsRetimer.Tests
         RedirectStandardError = true,
         UseShellExecute = false
       };
-      foreach (var a in new[] { exe, "--auto", "--print-output", rf, tg }) psi.ArgumentList.Add(a);
+      psi.ArgumentList.Add(exe);
+      foreach (var a in args) psi.ArgumentList.Add(a);
+      configure?.Invoke(psi);
+
       using var p = Process.Start(psi)!;
       string stdout = p.StandardOutput.ReadToEnd();
       string stderr = p.StandardError.ReadToEnd();
       p.WaitForExit();
-
-      Assert.Equal(0, p.ExitCode);
-      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + "\n", stdout);
-      Assert.Contains("saved", stderr);
+      return (p.ExitCode, stdout, stderr);
     }
   }
 }

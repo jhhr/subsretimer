@@ -4,6 +4,7 @@
 using System.Reflection;
 using System.Text;
 using SubsRetimer.Core;
+using SubsRetimer.Editor;
 
 namespace SubsRetimer
 {
@@ -171,14 +172,45 @@ Supported formats: .ass, .ssa, .srt";
       return ExitSaved;
     }
 
+    /// <summary>
+    /// Whether a display can be opened. A seam: a test can answer it without
+    /// touching GTK, which must never start inside <c>dotnet test</c>.
+    /// </summary>
+    internal static Func<bool> CanOpenDisplay = EditorHost.CanOpenDisplay;
+
+    /// <summary>
+    /// Runs the editor window and returns the paths it saved. The other seam,
+    /// for the same reason.
+    /// </summary>
+    internal static Func<SubtitleFile?, SubtitleFile?, IReadOnlyList<string>> RunWindow = EditorHost.Run;
+
     private static int RunEditor(Options o, TextWriter stdout, TextWriter stderr)
     {
-      // Validate what was given so bad paths fail fast even before the editor exists.
-      if (o.Reference != null) LoadChecked(o.Reference, o.RefEncoding, "Reference");
-      if (o.Target != null) LoadChecked(o.Target, o.TargetEncoding, "Target");
+      // Validate what was given so bad paths fail before a window opens.
+      SubtitleFile? reference = o.Reference != null ? LoadChecked(o.Reference, o.RefEncoding, "Reference") : null;
+      SubtitleFile? target = o.Target != null ? LoadChecked(o.Target, o.TargetEncoding, "Target") : null;
 
-      stderr.WriteLine("subsretimer: the interactive editor is not available in this build yet; use --auto.");
-      return ExitError;
+      if (!CanOpenDisplay())
+      {
+        stderr.WriteLine("subsretimer: cannot open a display; use --auto");
+        return ExitError;
+      }
+
+      IReadOnlyList<string> saved;
+      try
+      {
+        saved = RunWindow(reference, target);
+      }
+      catch (Exception ex)
+      {
+        // Whatever GTK throws, the command line keeps its contract: a message
+        // on stderr and exit 1, never an unhandled exception.
+        stderr.WriteLine("subsretimer: the editor could not run: " + ex.Message);
+        return ExitError;
+      }
+
+      // Saving arrives with the editing phase; until then nothing is saved.
+      return saved.Count > 0 ? ExitSaved : ExitNothingSaved;
     }
   }
 }
