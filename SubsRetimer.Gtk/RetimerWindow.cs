@@ -25,6 +25,16 @@ namespace SubsRetimer.Editor
   {
     internal const string WindowTitle = "Subs Re-Timer";
 
+    /// <summary>
+    /// Name the window icon is looked up under in the icon theme; also the
+    /// <c>Icon=</c> of <c>dist/subsretimer.desktop</c>. <c>make install</c> and
+    /// the Windows bundle put the PNGs from <c>assets/</c> under
+    /// <c>share/icons/hicolor/&lt;size&gt;x&lt;size&gt;/apps</c>. A name the theme
+    /// does not know leaves the window without an icon, never an error, so
+    /// nothing here has to check.
+    /// </summary>
+    internal const string AppIconName = "subsretimer";
+
     /// <summary>Overlap at or above which the detail strip shows green.</summary>
     private const double GoodOverlap = 0.5;
 
@@ -76,6 +86,7 @@ namespace SubsRetimer.Editor
     {
       SetApplication(application);
       SetTitle(WindowTitle);
+      SetIconName(AppIconName);
       SetDefaultSize(1100, 700);
 
       RetimerStyles.Install();

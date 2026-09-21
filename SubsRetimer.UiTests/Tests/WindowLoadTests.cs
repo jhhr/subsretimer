@@ -163,6 +163,21 @@ namespace SubsRetimer.UiTests.Tests
       Assert.Equal(before.StoreRebuilds, after.StoreRebuilds);
     }
 
+    /// <summary>
+    /// The window asks the icon theme for "subsretimer", the name
+    /// <c>dist/subsretimer.desktop</c> and the installed PNGs carry. Whether
+    /// the running theme has that icon depends on the installation, so only
+    /// the name is checked here.
+    /// </summary>
+    [GtkFact]
+    public async Task Window_AsksTheIconThemeForTheApplicationIcon()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var window = await scope.OpenWindowAsync();
+
+      Assert.Equal("subsretimer", scope.Read(() => window.GetIconName()));
+    }
+
     private static RowState[] Rows(RetimerWindow window, Side side)
     {
       int count = side == Side.Reference

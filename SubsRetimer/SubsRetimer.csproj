@@ -7,6 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon Condition="Exists('$(MSBuildProjectDirectory)/../assets/subsretimer.ico')">../assets/subsretimer.ico</ApplicationIcon>
     <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
     <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
     <Description>Re-time a subtitle file to match the timings of another subtitle file</Description>
