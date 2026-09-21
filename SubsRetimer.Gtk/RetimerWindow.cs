@@ -48,10 +48,19 @@ namespace SubsRetimer.Editor
     private readonly Gtk.Label _overlap = Gtk.Label.New("-");
     private readonly Gtk.Label _offset = Gtk.Label.New("-");
 
+    private readonly Gtk.Button _timeShift = Gtk.Button.NewWithLabel("Time Shift");
+    private readonly Gtk.Button _undo = Gtk.Button.NewWithLabel("Undo");
+    private readonly Gtk.Button _redo = Gtk.Button.NewWithLabel("Redo");
+    private readonly Gtk.Button _save = Gtk.Button.NewWithLabel("Save");
+    private readonly Gtk.Button _saveAs = Gtk.Button.NewWithLabel("Save As...");
+
     private const string NoFile = "no file";
 
     /// <summary>True while a file is being loaded, when the store has yet to catch up with the engine.</summary>
     private bool _loading;
+
+    /// <summary>True while the unsaved-changes prompt is up: a second close request must not open a second one.</summary>
+    private bool _prompting;
 
     public RetimerWindow(Gtk.Application application)
     {
@@ -65,6 +74,8 @@ namespace SubsRetimer.Editor
       _engine.Changed += OnEngineChanged;
       _referenceList.SelectionChanged += OnSelectionChanged;
       _targetList.SelectionChanged += OnSelectionChanged;
+      // True vetoes the close; the prompt finishes the job when the user answers.
+      OnCloseRequest += (_, _) => VetoClose();
 
       RefreshAll();
     }
@@ -74,8 +85,47 @@ namespace SubsRetimer.Editor
     /// <summary>The model behind the window. Tests drive it directly.</summary>
     internal RetimerEngine Engine => _engine;
 
-    /// <summary>Files saved from this window, in order. Filled once saving exists; the exit code follows it.</summary>
+    /// <summary>Files saved from this window, in order; the exit code of the command line follows it.</summary>
     internal IReadOnlyList<string> SavedPaths => _savedPaths;
+
+    /// <summary>True when the target has timing changes that are not in any saved file.</summary>
+    internal bool IsDirty => _engine.IsDirty;
+
+    /// <summary>True when Time Shift can run: both files loaded and a row selected on each side.</summary>
+    internal bool CanTimeShift => _engine.HasBoth && SelectedReference >= 0 && SelectedTarget >= 0;
+
+    /// <summary>Shift the target from the selected row so it starts with the selected reference row.</summary>
+    internal void TimeShift()
+    {
+      if (!CanTimeShift) return;
+      _engine.ShiftToMatch(SelectedReference, SelectedTarget);
+    }
+
+    /// <summary>Undo the last shift. False when there was nothing to undo.</summary>
+    internal bool Undo() => _engine.Undo();
+
+    /// <summary>Redo the last undone shift. False when there was nothing to redo.</summary>
+    internal bool Redo() => _engine.Redo();
+
+    /// <summary>Save the target to <c>name_retimed.ext</c>. False when there is nothing to save or the save failed.</summary>
+    internal bool Save() => SaveTo(null);
+
+    /// <summary>Save the target to <paramref name="path"/>: what the Save As dialog calls once a name is chosen.</summary>
+    internal bool SaveAs(string path) => SaveTo(path);
+
+    /// <summary>
+    /// Answers the unsaved-changes prompt instead of <c>Gtk.AlertDialog</c> when
+    /// set: the index of the button to press. Lets a test drive the close path
+    /// with no dialog on screen.
+    /// </summary>
+    internal Func<Task<int>>? CloseChoice { get; set; }
+
+    /// <summary>Close the window as the title bar's close button would, prompt and all.</summary>
+    internal void RequestClose()
+    {
+      if (VetoClose()) return;
+      Destroy();
+    }
 
     internal void LoadReference(string path, Encoding? encoding = null) =>
       SetFile(Side.Reference, RetimerIO.Load(path, encoding));
@@ -237,7 +287,36 @@ namespace SubsRetimer.Editor
       strip.Append(middle);
 
       strip.Append(BuildDetailSide(Side.Target));
+      strip.Append(BuildButtons());
       return strip;
+    }
+
+    /// <summary>
+    /// The editing buttons at the end of the detail strip. Auto Align joins
+    /// them next to Time Shift in a later phase; the box is laid out for it.
+    /// </summary>
+    private Gtk.Widget BuildButtons()
+    {
+      var box = Gtk.Box.New(Gtk.Orientation.Horizontal, 6);
+      box.SetValign(Gtk.Align.Center);
+      box.SetHalign(Gtk.Align.End);
+
+      _timeShift.OnClicked += (_, _) => TimeShift();
+      _undo.OnClicked += (_, _) => Undo();
+      _redo.OnClicked += (_, _) => Redo();
+      _save.OnClicked += (_, _) => Save();
+      _saveAs.OnClicked += (_, _) => SaveAsDialog();
+
+      // A wider gap groups the buttons: edit, history, save.
+      _undo.SetMarginStart(12);
+      _save.SetMarginStart(12);
+
+      box.Append(_timeShift);
+      box.Append(_undo);
+      box.Append(_redo);
+      box.Append(_save);
+      box.Append(_saveAs);
+      return box;
     }
 
     private Gtk.Widget BuildDetailSide(Side side)
@@ -274,6 +353,7 @@ namespace SubsRetimer.Editor
     {
       RefreshCounters();
       RefreshDetail();
+      RefreshButtons();
     }
 
     /// <summary>
@@ -298,6 +378,26 @@ namespace SubsRetimer.Editor
 
       RefreshCounters();
       RefreshDetail();
+      RefreshButtons();
+      RefreshTitle();
+    }
+
+    /// <summary>The window title carries the target's name and a <c>*</c> while it is dirty.</summary>
+    private void RefreshTitle()
+    {
+      string title = _engine.Target == null ? WindowTitle : WindowTitle + " - " + _engine.Target.FileName;
+      SetTitle(_engine.IsDirty ? "*" + title : title);
+    }
+
+    private void RefreshButtons()
+    {
+      _timeShift.SetSensitive(CanTimeShift);
+      _undo.SetSensitive(_engine.CanUndo);
+      _redo.SetSensitive(_engine.CanRedo);
+      // Saving an unchanged file is allowed: it is how a copy in the retimed
+      // name (or another format's encoding) is written.
+      _save.SetSensitive(_engine.Target != null);
+      _saveAs.SetSensitive(_engine.Target != null);
     }
 
     private void RefreshCounters()
@@ -391,6 +491,128 @@ namespace SubsRetimer.Editor
       catch (Exception ex)
       {
         ShowError("The subtitle file could not be opened.", ex.Message);
+      }
+    }
+
+    // ── Saving ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Write the target to <paramref name="path"/>, or to the default
+    /// <c>name_retimed.ext</c> when it is null, and remember the full path.
+    /// Everything the write can throw becomes a dialog; the answer says
+    /// whether the file is on disk, which the close prompt needs.
+    /// </summary>
+    private bool SaveTo(string? path)
+    {
+      if (_engine.Target == null) return false;
+      try
+      {
+        // Full paths, because they are what --print-output hands to the
+        // program that launched the editor.
+        string saved = Path.GetFullPath(_engine.Save(path));
+        if (!_savedPaths.Contains(saved)) _savedPaths.Add(saved);
+        return true;
+      }
+      catch (Exception ex)
+      {
+        ShowError("The subtitle file could not be saved.", ex.Message);
+        return false;
+      }
+    }
+
+    /// <summary>
+    /// Button handler: async void because a GTK callback has no caller to
+    /// await it. The default output name is offered next to the target file.
+    /// </summary>
+    private async void SaveAsDialog()
+    {
+      try
+      {
+        if (_engine.Target == null) return;
+        string suggested = Path.GetFullPath(RetimerIO.DefaultOutputPath(_engine.Target.Path));
+
+        var dialog = Gtk.FileDialog.New();
+        dialog.SetTitle("Save the retimed subtitles");
+        dialog.SetInitialName(Path.GetFileName(suggested));
+        string? folder = Path.GetDirectoryName(suggested);
+        if (!string.IsNullOrEmpty(folder)) dialog.SetInitialFolder(Gio.FileHelper.NewForPath(folder));
+
+        Gio.File? chosen;
+        try
+        {
+          chosen = await dialog.SaveAsync(this);
+        }
+        catch (GLib.GException)
+        {
+          return;   // the user dismissed the dialog; GirCore 0.7 reports that as an error
+        }
+
+        string? path = chosen?.GetPath();
+        if (path == null) return;
+        SaveTo(path);
+      }
+      catch (Exception ex)
+      {
+        ShowError("The subtitle file could not be saved.", ex.Message);
+      }
+    }
+
+    // ── Closing ──────────────────────────────────────────────────────────
+
+    private const int ChoiceSave = 0;
+    private const int ChoiceDiscard = 1;
+    private const int ChoiceCancel = 2;
+
+    /// <summary>
+    /// The close-request handler: true keeps the window open. With unsaved
+    /// changes it puts the prompt up and answers true; the prompt closes the
+    /// window itself once the user has chosen.
+    /// </summary>
+    private bool VetoClose()
+    {
+      if (_prompting) return true;   // one prompt at a time
+      if (!_engine.IsDirty) return false;
+
+      _prompting = true;
+      _ = PromptThenClose();
+      return true;
+    }
+
+    private async Task PromptThenClose()
+    {
+      try
+      {
+        int choice = await AskAboutUnsavedChanges();
+        // Cancel, or anything else the dialog might answer, keeps the window.
+        if (choice != ChoiceSave && choice != ChoiceDiscard) return;
+        // A failed save keeps it too: the changes are still only in here.
+        if (choice == ChoiceSave && !Save()) return;
+        Destroy();
+      }
+      finally
+      {
+        _prompting = false;
+      }
+    }
+
+    /// <summary>Which of Save / Discard / Cancel the user chose. Anything unanswered counts as Cancel.</summary>
+    private async Task<int> AskAboutUnsavedChanges()
+    {
+      if (CloseChoice != null) return await CloseChoice();
+
+      var dialog = new Gtk.AlertDialog();
+      dialog.SetMessage("Save the changes before closing?");
+      dialog.SetDetail("The re-timed lines have not been written to a file.");
+      dialog.SetButtons(new[] { "Save", "Discard", "Cancel" });
+      dialog.SetDefaultButton(ChoiceSave);
+      dialog.SetCancelButton(ChoiceCancel);
+      try
+      {
+        return await dialog.ChooseAsync(this);
+      }
+      catch (GLib.GException)
+      {
+        return ChoiceCancel;   // dismissed, the same as Cancel
       }
     }
 
