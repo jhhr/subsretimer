@@ -49,13 +49,20 @@ namespace SubsRetimer.Editor
     private readonly Gtk.Label _overlap = Gtk.Label.New("-");
     private readonly Gtk.Label _offset = Gtk.Label.New("-");
 
+    /// <summary>The one-line result of the last Auto Align, shown under the lists.</summary>
+    private readonly Gtk.Label _status = Gtk.Label.New("");
+
     private readonly Gtk.Button _timeShift = Gtk.Button.NewWithLabel("Time Shift");
+    private readonly Gtk.Button _autoAlign = Gtk.Button.NewWithLabel("Auto Align");
     private readonly Gtk.Button _undo = Gtk.Button.NewWithLabel("Undo");
     private readonly Gtk.Button _redo = Gtk.Button.NewWithLabel("Redo");
     private readonly Gtk.Button _save = Gtk.Button.NewWithLabel("Save");
     private readonly Gtk.Button _saveAs = Gtk.Button.NewWithLabel("Save As...");
 
     private const string NoFile = "no file";
+
+    /// <summary>What the status line says when <see cref="SubsRetimer.Core.AutoAlign"/> found no segments.</summary>
+    internal const string NoAlignment = "Auto Align: no alignment found";
 
     /// <summary>True while a file is being loaded, when the store has yet to catch up with the engine.</summary>
     private bool _loading;
@@ -101,6 +108,44 @@ namespace SubsRetimer.Editor
     {
       if (!CanTimeShift) return;
       _engine.ShiftToMatch(SelectedReference, SelectedTarget);
+    }
+
+    /// <summary>True when Auto Align can run: both files are loaded. It needs no selection.</summary>
+    internal bool CanAutoAlign => _engine.HasBoth;
+
+    /// <summary>
+    /// Align the whole target to the reference: one offset per run of lines,
+    /// applied as one undoable shift per offset change, exactly as
+    /// <c>subsretimer --auto</c> does it. The applied segments are also what
+    /// the status line under the lists reports.
+    /// </summary>
+    /// <returns>The segments applied, in order; empty when nothing could be aligned.</returns>
+    internal IReadOnlyList<AlignmentSegment> AutoAlign()
+    {
+      if (!CanAutoAlign) return Array.Empty<AlignmentSegment>();
+
+      var segments = Core.AutoAlign.Compute(_engine.ReferenceLines, _engine.TargetLines);
+      // Every shift raises Changed, which repaints the lists and the strip:
+      // nothing extra is refreshed here.
+      Core.AutoAlign.Apply(_engine, segments);
+
+      SetStatus(segments.Count == 0
+        ? NoAlignment
+        : string.Join("; ", segments.Select(Core.AutoAlign.Describe)));
+      return segments;
+    }
+
+    /// <summary>The status line under the lists: the last Auto Align result, or empty.</summary>
+    internal string StatusText => _status.GetText();
+
+    /// <summary>Show <paramref name="text"/> in the status line; an empty string hides it.</summary>
+    private void SetStatus(string text)
+    {
+      _status.SetText(text);
+      // The full text can be longer than the window; the label ellipsizes it
+      // and the tooltip carries the rest.
+      _status.SetTooltipText(text.Length == 0 ? null : text);
+      _status.SetVisible(text.Length > 0);
     }
 
     /// <summary>Undo the last shift. False when there was nothing to undo.</summary>
@@ -151,6 +196,8 @@ namespace SubsRetimer.Editor
         _loading = false;
       }
 
+      // A new file makes the last alignment report meaningless.
+      SetStatus("");
       ListFor(side).SetLines(side == Side.Reference ? _engine.ReferenceLines : _engine.TargetLines);
       (side == Side.Reference ? _referenceName : _targetName).SetText(file.FileName);
       (side == Side.Reference ? _referenceHint : _targetHint).SetVisible(false);
@@ -265,7 +312,7 @@ namespace SubsRetimer.Editor
       // Enter runs Time Shift, but only while a list has the focus, so it is
       // a key of the lists and not an accelerator of the whole window.
       Register(ActionTimeShift, TimeShift, null);
-      Register(ActionAutoAlign, () => { }, null).SetEnabled(false);   // filled in by phase 5
+      Register(ActionAutoAlign, () => AutoAlign(), null);
       Register(ActionHelp, ShowHelp, null);
       Register(ActionAbout, ShowAbout, null);
 
@@ -348,6 +395,19 @@ namespace SubsRetimer.Editor
       root.Append(panes);
 
       root.Append(Gtk.Separator.New(Gtk.Orientation.Horizontal));
+
+      // The Auto Align report belongs with the lists it describes, so it sits
+      // directly under them and above the detail strip. Hidden while empty.
+      _status.SetXalign(0f);
+      _status.SetWrap(false);
+      _status.SetEllipsize(Pango.EllipsizeMode.End);
+      _status.SetMarginStart(6);
+      _status.SetMarginEnd(6);
+      _status.SetMarginTop(4);
+      _status.AddCssClass("dim-label");
+      _status.SetVisible(false);
+      root.Append(_status);
+
       root.Append(BuildDetailStrip());
       return root;
     }
@@ -567,8 +627,8 @@ namespace SubsRetimer.Editor
     }
 
     /// <summary>
-    /// The editing buttons at the end of the detail strip. Auto Align joins
-    /// them next to Time Shift in a later phase; the box is laid out for it.
+    /// The editing buttons at the end of the detail strip: the two that change
+    /// timings, then history, then saving.
     /// </summary>
     private Gtk.Widget BuildButtons()
     {
@@ -577,6 +637,7 @@ namespace SubsRetimer.Editor
       box.SetHalign(Gtk.Align.End);
 
       _timeShift.OnClicked += (_, _) => TimeShift();
+      _autoAlign.OnClicked += (_, _) => AutoAlign();
       _undo.OnClicked += (_, _) => Undo();
       _redo.OnClicked += (_, _) => Redo();
       _save.OnClicked += (_, _) => Save();
@@ -587,6 +648,7 @@ namespace SubsRetimer.Editor
       _save.SetMarginStart(12);
 
       box.Append(_timeShift);
+      box.Append(_autoAlign);
       box.Append(_undo);
       box.Append(_redo);
       box.Append(_save);
@@ -667,6 +729,7 @@ namespace SubsRetimer.Editor
     private void RefreshButtons()
     {
       _timeShift.SetSensitive(CanTimeShift);
+      _autoAlign.SetSensitive(CanAutoAlign);
       _undo.SetSensitive(_engine.CanUndo);
       _redo.SetSensitive(_engine.CanRedo);
       // Saving an unchanged file is allowed: it is how a copy in the retimed
@@ -677,6 +740,7 @@ namespace SubsRetimer.Editor
       // The menu and the accelerators reach the same methods, so they are
       // greyed out together with the buttons.
       SetActionEnabled(ActionTimeShift, CanTimeShift);
+      SetActionEnabled(ActionAutoAlign, CanAutoAlign);
       SetActionEnabled(ActionUndo, _engine.CanUndo);
       SetActionEnabled(ActionRedo, _engine.CanRedo);
       SetActionEnabled(ActionSave, _engine.Target != null);
