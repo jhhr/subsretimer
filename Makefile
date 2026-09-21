@@ -8,14 +8,19 @@ LICDIR    = $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)
 PROJ      = SubsRetimer/SubsRetimer.csproj
 PUBLISH   = SubsRetimer/bin/Release/net10.0/publish
 TESTPROJ  = SubsRetimer.Tests/SubsRetimer.Tests.csproj
+UITESTPROJ = SubsRetimer.UiTests/SubsRetimer.UiTests.csproj
 
-.PHONY: build test install uninstall clean
+.PHONY: build test test-ui install uninstall clean
 
 build:
 	dotnet publish $(PROJ) -c Release --no-self-contained
 
 test:
 	dotnet test $(TESTPROJ) -c Release
+
+# Needs GTK 4 and a display: on a headless Linux box this wraps it in Xvfb.
+test-ui:
+	GSK_RENDERER=cairo xvfb-run -a dotnet test $(UITESTPROJ) -c Release
 
 install: build
 	install -dm755 "$(LIBDIR)"
@@ -35,3 +40,4 @@ clean:
 	rm -rf SubsRetimer/bin SubsRetimer/obj SubsRetimer.Core/bin SubsRetimer.Core/obj
 	rm -rf SubsRetimer.Tests/bin SubsRetimer.Tests/obj
 	rm -rf SubsRetimer.Gtk/bin SubsRetimer.Gtk/obj
+	rm -rf SubsRetimer.UiTests/bin SubsRetimer.UiTests/obj
