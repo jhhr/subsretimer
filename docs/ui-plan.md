@@ -43,7 +43,7 @@ had.
 
 | Need | Available |
 | --- | --- |
-| Custom drawing | `Gtk.DrawingArea.SetDrawFunc((area, cr, w, h) => …)` with a full `Cairo.Context`: `MoveTo`, `LineTo`, `Rectangle`, `Fill`, `Stroke`, `ShowText`, `TextExtents`, `Save`/`Restore`, `Clip` |
+| Custom drawing | `Gtk.DrawingArea.SetDrawFunc((area, cr, w, h) => …)` with a full `Cairo.Context`: `MoveTo`, `LineTo`, `Rectangle`, `Fill`, `Stroke`, `ShowText`, `TextExtents(text, out extents)`, `Save`/`Restore`, `Clip`, `SetSourceRgb`, `SelectFontFace`, `SetFontSize`. Measured in phase 7: the line width is the **property** `LineWidth`, there is no `SetLineWidth`, and `PressedSignalArgs` carries only `NPress`/`X`/`Y`, so the button comes from `GestureSingle.GetCurrentButton()` |
 | Lists | `Gtk.ColumnView` + `Gio.ListStore` of `Gtk.StringObject` with a parallel `List<RetimerLine>` (GirCore 0.7 cannot subclass `GObject.Object`); `ColumnView.ScrollTo(pos, col, ListScrollFlags, ScrollInfo)` |
 | Mouse buttons | `Gtk.GestureClick.SetButton(n)`, `OnPressed`/`OnReleased` |
 | Dialogs | `Gtk.FileDialog.OpenAsync/SaveAsync(window)`, `SetInitialName`; `Gtk.AlertDialog.SetButtons`, `ChooseAsync` |
@@ -159,7 +159,8 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    (`tests: add a GTK UI test harness for the editor window`, `tests: cover
    the editor window's phases 2 to 5 with UI tests`); the CI job is still the
    lead's to add, from the phase report.
-7. **Timeline chart.** Not started.
+7. **Timeline chart.** Done 2026-09-21 (`gtk: draw the timeline chart under
+   the menu`, `tests: cover the timeline chart with UI tests`).
 8. **Drag-and-drop spike.** Not started.
 9. **Packaging: desktop file, icon, Windows bundle.** Not started.
 10. **Documentation pass.** Not started.
@@ -235,7 +236,8 @@ Found while building; none is a window bug. Completed by the documentation phase
   Pre-existing and deliberate, but the editor makes it easy to hit.
 - Real key delivery to the capture-phase controller cannot be exercised
   headless (no event synthesis in GirCore 0.7); the handlers are tested, the
-  delivery is a manual check.
+  delivery is a manual check. The same holds for the mouse buttons on the
+  lists and on the timeline chart: the tests call the handlers.
 
 ## Open defaults
 

@@ -521,3 +521,29 @@ Changed: `RetimerEngine.IsDirty` is now computed from a clean undo depth (commit
 and the UI assertion flipped; CI `ui-tests` job and `make test-ui` added.
 The next phase must know: UI tests exist and must stay green (`make test-ui`); add tests
 for new behaviour there, in the existing files' shape.
+
+### Phase 7 — 2026-09-21 — `gtk: draw the timeline chart under the menu`, `tests: cover the timeline chart with UI tests`
+
+Built: `TimelineLayout` (display-free: clamped `ScaleSeconds` 4..120,
+`ScaleWindow`, `VisibleLines`, `XFor`, `BarRect`, major/minor ticks,
+`TickLabels`/`LabelEvery`) and `TimelineChart` (a `Gtk.Box` with the two zoom
+buttons and a `Gtk.DrawingArea`; `ScaleSeconds`, `ZoomIn`/`ZoomOut(step)`,
+`Layout`, `SetLines`/`SetActive`/`QueueDraw`, `ClickAt(button, x, y)` →
+`Clicked`, `DrawCount`/`LastDrawError`), the 64 px strip between the menu and
+the top strip, and on the window `Chart`, `RefreshChart()` and
+`ChartClick(button)` (left/right walk the target selection and reselect the
+reference, middle = Time Shift). 8 unit + 6 UI tests; suites 84 and 20 passed.
+
+Choices / deviations: the window starts on a whole second and is exactly
+`ScaleSeconds` long (the original rounds both ends with an integer half-range,
+leaving an odd scale narrower than its own ticks); a line spanning the whole
+window is visible (the original dropped it); a bar is never thinner than 1 px;
+the chart owns its widgets instead of subclassing one, as `LineListView` does;
+a draw that throws is caught into `LastDrawError`, since an exception in that
+native callback would end the process. Colours: ground white, ticks `#A9A9A9`,
+labels `#1A1A1A`, bars `#969696` with white text, active `#228B22` / `#4169E1`.
+
+The next phase must know: `Chart.Layout` is null until both sides have a
+selection (only ticks are drawn then); the zoom buttons need the `retimer-zoom`
+class, or the strip grows past 64 px; real mouse delivery to the chart is a
+manual check, as for the lists' keys. Left open: nothing (driver `smoke7`).
