@@ -371,3 +371,29 @@ already returns 0 when it is non-empty; only `--print-output` is missing.
 
 Left open: `Makefile` `clean` should also remove `SubsRetimer.Gtk/bin` and
 `SubsRetimer.Gtk/obj` (reported; `ci.yml` needs nothing). No UI tests yet.
+
+### Phase 3 — 2026-09-21 — `gtk: edit, save and ask before closing with changes`, `cli: print the paths the editor saved under --print-output`
+
+Built: five buttons at the end of `RetimerWindow`'s detail strip (Time
+Shift, Undo, Redo, Save, Save As...), sensitivity from `RefreshButtons()`
+called by the `Changed` handler and the selection path; `RefreshTitle()`
+(`*` + `Subs Re-Timer - <target name>`); `SaveTo` (full path, appended to
+`SavedPaths`, errors to a `Gtk.AlertDialog`), the Save As `FileDialog`,
+the close prompt. Surface: `TimeShift`, `Undo`, `Redo`, `Save`,
+`SaveAs(path)`, `IsDirty`, `CanTimeShift`, `RequestClose`, `CloseChoice`.
+`Cli.RunEditor` prints saved paths under `--print-output`; 3 new tests.
+
+Choices / deviations: `SavedPaths` never takes the same path twice, so a
+second save cannot print a line twice. Save and Save As stay sensitive
+when nothing changed (that is how a copy is written). Cancel, a dismissed
+prompt, an unknown answer and a failed save all keep the window open.
+
+The next phase must know: `OnCloseRequest` is
+`ReturningSignalHandler<Gtk.Window, bool>` (`+= (_, _) => VetoClose()`,
+true vetoes); the prompt then calls `Destroy()` itself, which detaches
+the window from the application (`OnDestroy` still does not fire).
+`RequestClose()` runs the same veto, so it needs no realized window.
+Phase 4's actions should call `TimeShift`/`Undo`/`Redo`/`Save`/
+`SaveAsDialog` and leave enabling to `RefreshButtons`. Suite: 72 passed.
+
+Left open: nothing. Scratchpad driver `smoke3` covers it all.

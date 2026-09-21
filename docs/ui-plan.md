@@ -148,7 +148,8 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    Done 2026-09-21 (`gtk: add the editor window with the two line lists`,
    `cli: open the editor window from the command line`).
 3. **Editing: Time Shift, undo/redo, dirty state, Save/Save As, close prompt.**
-   Not started.
+   Done 2026-09-21 (`gtk: edit, save and ask before closing with changes`,
+   `cli: print the paths the editor saved under --print-output`).
 4. **Keyboard and mouse: menu, accelerators, closest-line and gap navigation.**
    Not started.
 5. **Auto Align in the editor.** Not started.
