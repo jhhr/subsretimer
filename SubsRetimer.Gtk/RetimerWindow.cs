@@ -297,7 +297,15 @@ namespace SubsRetimer.Editor
       "Enter                 Time Shift: move the target onto the selected reference line\n" +
       "Right-click           Select the closest line on the other side\n" +
       "Middle-click          Time Shift\n" +
-      "Drop a file           Load it as that side's subtitles";
+      "Drop a file           Load it as that side's subtitles\n" +
+      "\n" +
+      "In the timeline:\n" +
+      "Left-click            Select the next target line and its closest counterpart\n" +
+      "Right-click           Select the previous target line and its closest counterpart\n" +
+      "Middle-click          Time Shift\n" +
+      "Left-click + / -      Zoom in / out by 2 seconds\n" +
+      "Right-click + / -     Zoom in / out by 10 seconds\n" +
+      "Middle-click + / -    Zoom all the way in or out (4 to 120 seconds)";
 
     /// <summary>What About shows: the name, the version and the licence.</summary>
     internal static string AboutText =>
