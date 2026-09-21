@@ -216,6 +216,24 @@ headless. Phase 6 before phase 7 so the chart lands with tests.
     points", the subs2srs docs line that says the editor is not ported
     (separate repository: reported, done by the lead).
 
+## Known limitations and open points
+
+Found while building; none is a window bug. Completed by the documentation phase.
+
+- Auto Align folds a leading block shorter than `AutoAlignOptions.SwitchPenalty`
+  (2.5 fully matched lines) into the following segment, so a three-line intro
+  before a 15 s cut ends up 15 s early. A Core tuning question, not the
+  editor's.
+- A segment boundary can land one line after the real cut (seen once: cut at
+  line 10, boundary at 11), leaving that line off while still counted as
+  matched. Same class as the point above.
+- Auto Align can push early lines negative; `TimeFormat` clamps negatives to
+  zero when formatting and saving, so such rows show and save as `0:00:00.00`.
+  Pre-existing and deliberate, but the editor makes it easy to hit.
+- Real key delivery to the capture-phase controller cannot be exercised
+  headless (no event synthesis in GirCore 0.7); the handlers are tested, the
+  delivery is a manual check.
+
 ## Open defaults
 
 Chosen by the lead where the original tool gave no guidance; change if wrong:

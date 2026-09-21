@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 4)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 5)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -157,19 +157,24 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   `SelectClosestOnOtherSide(side)`, `JumpToGap(side, forward)` (index or -1),
   `ActivateAction(name)`, `KeyTable`, `AboutText`, `ShowMessage`; on `LineListView`:
   `GapFlags`, `ScrollTo(index, focus)`, `IndexAt(x, y)`. GTK 4 event synthesis is not
-  exposed in GirCore 0.7: the handlers are the test seam, not real key delivery. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  exposed in GirCore 0.7: the handlers are the test seam, not real key delivery.
+  Since phase 5: `CanAutoAlign` (= `HasBoth`), `AutoAlign()` (returns the segments
+  applied; `AutoAlign.Apply` pushes one undo step per segment **that moves**, a zero
+  delta is silent), `StatusText` / `NoAlignment`, a dim status label between the lists
+  and the detail strip (hidden while empty, cleared by `SetFile`), the Auto Align button
+  after Time Shift and `win.auto-align` enabled from `RefreshButtons`. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
   `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
-- `SubsRetimer.Tests`: xUnit, 73 tests, `Fixtures.Lines` (periodic) and
+- `SubsRetimer.Tests`: xUnit, 74 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
 - No UI tests yet (phase 6). Smoke runs use a throwaway driver under Xvfb.
 
 ## 4. Phases
 
-Done: 1, 2, 3, 4.
+Done: 1, 2, 3, 4, 5.
 
 ### 1 — Core: change notification and gap navigation
 
