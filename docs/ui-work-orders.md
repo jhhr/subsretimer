@@ -444,3 +444,28 @@ reference equality on the bound cell boxes. Auto Align belongs in
 `RefreshButtons`, replacing its `SetEnabled(false)` in `BuildActions`.
 
 Left open: the keys and the clicks wait for phase 6 (driver `smoke4`).
+
+### Phase 5 — 2026-09-21 — `tests: check each Auto Align undo step restores the stage before`, `gtk: align the whole target from the editor window`
+
+Built: `RetimerWindow.AutoAlign()` (`Compute` + `Apply` on the engine's
+lines, the segments returned), `CanAutoAlign` = `engine.HasBoth`, an **Auto
+Align** button after Time Shift and the `win.auto-align` action phase 4 left
+disabled, both greyed by `RefreshButtons`; a `_status` label between the
+lists and the detail strip showing the `Describe` text of every segment
+joined with `"; "` (`StatusText`, `NoAlignment` when empty), hidden while
+empty, ellipsized with the full text in its tooltip, cleared by `SetFile`.
+One new test in `AutoAlignTests`. Suite: 74 passed.
+
+Choices / deviations: `Apply` pushes an undo step per segment *that moves*:
+its delta is `seg.Offset - applied`, and `ShiftFrom` returns early on a zero
+delta, so a segment repeating the previous offset (a leading zero segment,
+above all) costs no step. The status text is the segment list only, so it
+stays true either way; the plan's Auto Align bullet now says so.
+
+The next phase must know: the status line is a plain `Gtk.Label` under the
+lists, not in the top strip; `StatusText` is its text. `AutoAlign()` on an
+empty window returns no segments and leaves the status alone. A 3-line
+leading block is below `SwitchPenalty` (2.5 matched lines), so `Compute`
+folds it into the next segment and those rows stay gray — not a window bug.
+
+Left open: nothing. Driver `smoke5` covers it; UI tests are phase 6's.

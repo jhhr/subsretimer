@@ -69,8 +69,9 @@ shift is needed, gray rows have no counterpart in the other file.
 - **Menu**: Open Reference, Open Target, Save, Save As, Undo, Redo, Time
   Shift, Auto Align, Help, About.
 - **Auto Align**: `AutoAlign.Compute` + `Apply`, one undoable step per
-  breakpoint, then recolour; status line uses the same segment text the CLI
-  prints.
+  segment that moves (a segment whose offset equals the previous one's shifts
+  nothing and pushes no step), then recolour; status line uses the same segment
+  text the CLI prints.
 - **Behaviours**: selecting a row updates the detail strip. Right-click or
   Left/Right selects the closest line on the other side by start time. Ctrl+Up
   and Ctrl+Down jump to the previous/next orange row and select its closest
@@ -152,7 +153,8 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    `cli: print the paths the editor saved under --print-output`).
 4. **Keyboard and mouse: menu, accelerators, closest-line and gap navigation.**
    Done 2026-09-21 (`gtk: add the menu, accelerators and list navigation`).
-5. **Auto Align in the editor.** Not started.
+5. **Auto Align in the editor.** Done 2026-09-21
+   (`gtk: align the whole target from the editor window`).
 6. **UI test harness, tests for phases 2 to 5, CI job.** Not started.
 7. **Timeline chart.** Not started.
 8. **Drag-and-drop spike.** Not started.
