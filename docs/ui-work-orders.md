@@ -108,7 +108,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 9)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 11: complete)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
@@ -167,7 +167,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - After phase 6 (lead): `IsDirty` is no longer a sticky flag but "undo depth differs
   from the clean depth" (set on load and save, -1 once unreachable), so undoing back to
   the loaded or saved state clears the star.
-- `SubsRetimer.UiTests` (xUnit, 25 tests, `[GtkFact]` skips every test when
+- `SubsRetimer.UiTests` (xUnit, 31 tests, `[GtkFact]` skips every test when
   `EditorHost.CanOpenDisplay()` is false): `Harness/GtkFixture` (one GTK thread,
   `RunOnGtk`/`RunOnGtkAsync`), `Pump` (`IdleAsync`, `FramesAsync`, `SettleAsync`,
   `WaitUntilAsync`; never settle on a window an action may have destroyed, use
@@ -201,7 +201,16 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
   `--version` and `--auto`; it does not start the editor), `make publish-windows`,
   `SubsRetimer/WindowsRuntimeSetup.cs` (sets XDG/GSettings/pixbuf/GSK variables when the
   bundle layout is present, first thing in `Main`), `.github/workflows/release.yml`
-  (Windows zip on `v*` tags, lead). Neither PowerShell script has run yet: no `pwsh` here. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  (Windows zip on `v*` tags, lead). Neither PowerShell script has run yet: no `pwsh` here.
+- Since phase 11: `OpenPathAsync(side, path)` is the way in for Open and drops; for the
+  target it runs `ConfirmReplaceTarget()` (Save/Discard/Cancel through
+  `AskAboutUnsavedChanges`, so `CloseChoice` drives it) when dirty; a reference never
+  asks. `EditorHost.Run(reference, target, onSaved)` → `RetimerWindow.PathSaved`, invoked
+  from `SaveTo` for each new path, so `RunEditor` prints and flushes as each file is
+  written (`Cli.RunWindow` is a 3-arg seam). `KeyTable` lists the timeline bindings and
+  the README table is identical to it. `Directory.Build.props` holds `Version`, `Authors`,
+  `Copyright`, `PackageLicenseExpression`; `-p:Version=` on publish still overrides.
+  `Tests/WindowReplaceTests.cs`, 6 tests. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
   map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
   place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
   `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
@@ -212,7 +221,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 
 ## 4. Phases
 
-Done: 1, 2, 3, 4, 5, 6, 7, 8, 9.
+Done: all, 1 to 11. The work is complete; this file is kept as the record.
 
 ### 1 — Core: change notification and gap navigation
 
@@ -675,3 +684,11 @@ The next phase must know: `-p:Version=9.9.9` on publish still beats the props
 file (checked: exe and Gtk assembly both 9.9.9). Suites: 84 and 31 passed.
 
 Left open: nothing.
+
+### Lead — 2026-09-21 — close-out
+Verified from a clean rebuild: Release build 0 warnings; 84 unit tests, 31 UI tests
+under Xvfb, all 31 skipped without a display; `--version` 0.1.0; `--auto --print-output`
+exit 0 with the path as the last stdout line; editor mode without a display exit 1 with
+the message; subs2srs's 13 launcher tests pass against this build (`SUBSRETIMER_EXE`).
+Not run anywhere yet: the two PowerShell scripts, the release workflow, and the manual
+checklist in `docs/ui-plan.md`.
