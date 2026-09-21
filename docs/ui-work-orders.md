@@ -474,3 +474,29 @@ leading block is below `SwitchPenalty` (2.5 matched lines), so `Compute`
 folds it into the next segment and those rows stay gray — not a window bug.
 
 Left open: nothing. Driver `smoke5` covers it; UI tests are phase 6's.
+
+### Phase 6 — 2026-09-21 — `tests: add a GTK UI test harness for the editor window`, `tests: cover the editor window's phases 2 to 5 with UI tests`
+
+Built: `SubsRetimer.UiTests` (xUnit, references Core and Gtk, no
+parallelisation). `Harness/`: `GtkFixture` (one `NonUnique` application on a
+background thread, `Hold()` in `OnActivate`, `RunOnGtk`/`RunOnGtkAsync`),
+`Pump` (idle / frames / settle / until), `Screenshot`
+(`SUBSRETIMER_UITEST_ARTIFACTS`), `UiTestScope` (opens the window, settles
+after every action, screenshots and destroys on dispose, fails on a leaked
+toplevel), `SubtitleFixtures` (SRT reference + ASS target, irregular timings,
+silences, cuts), `Display` + `GtkFactAttribute`. 14 tests, phases 2 to 5.
+
+Choices / deviations: no `GtkSynchronizationContext` was ported —
+`RunWithSynchronizationContext(null)` installs GirCore's own main-loop context
+(measured: an `await` in a GTK lambda continues on the GTK thread; liveness is
+`Gtk.Window.GetToplevels()`). `RetimerWindow`'s three `Choice*` constants
+became `internal` so a test can name them. `RetimerEngine.Undo` sets `IsDirty`
+unconditionally, so the star stays after undoing back to the loaded state: the
+test asserts that, the work order expected it to clear (reported).
+
+The next phase must know: `[GtkFact]`, never `[Fact]` — the display is checked
+once at discovery and the fixture starts no application without one, because
+`gtk_init()` would exit the test process. What changes the engine goes through
+`scope.RunAsync(window, …)`, what may destroy it through `RunIdleAsync`.
+
+Left open: the CI job and the `Makefile` lines are in the report (not editable).

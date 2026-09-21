@@ -155,7 +155,10 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    Done 2026-09-21 (`gtk: add the menu, accelerators and list navigation`).
 5. **Auto Align in the editor.** Done 2026-09-21
    (`gtk: align the whole target from the editor window`).
-6. **UI test harness, tests for phases 2 to 5, CI job.** Not started.
+6. **UI test harness, tests for phases 2 to 5, CI job.** Done 2026-09-21
+   (`tests: add a GTK UI test harness for the editor window`, `tests: cover
+   the editor window's phases 2 to 5 with UI tests`); the CI job is still the
+   lead's to add, from the phase report.
 7. **Timeline chart.** Not started.
 8. **Drag-and-drop spike.** Not started.
 9. **Packaging: desktop file, icon, Windows bundle.** Not started.
