@@ -556,3 +556,29 @@ The next phase must know: `Chart.Layout` is null until both sides have a
 selection (only ticks are drawn then); the zoom buttons need the `retimer-zoom`
 class, or the strip grows past 64 px; real mouse delivery to the chart is a
 manual check, as for the lists' keys. Left open: nothing (driver `smoke7`).
+
+### Phase 8 — 2026-09-21 — `gtk: load a subtitle file dropped on either pane`, `tests: cover the dropped-file handler with UI tests`
+
+Built: drops work and were kept. On each pane's box (not the list: the
+scroller is hidden until a file is loaded, so an empty pane could take
+nothing) a `Gtk.DropTarget.New(Gio.FileHelper.GetGType(),
+Gdk.DragAction.Copy)`; `OnDrop` calls `DropFile(side, args.Value)`, which
+resolves the value to a path and goes through the existing `SetFile`, with
+`OpenFile`'s error dialog. Surface: `DropFile(side, value)`,
+`DropTargetFor(side)`. A `KeyTable` line and both pane hints mention drops.
+`Tests/WindowDropTests.cs`, 4 UI tests; suites 84 and 24 passed.
+
+Choices / deviations: the plan's row said drops were impossible; it was
+wrong about `Gio.File` and is corrected. `Gdk.FileList` really is a dead
+end (no `GetFiles` is bound), and there is no `SetGtypes`, so a target
+takes one GType. A drop of several files loads the first.
+
+The next phase must know: `GetFormats()` on a drop target lists its GType
+and no mime type (GirCore binds no `union_*` helper), so it says nothing
+about what a drop matches; that was measured from a file source's own
+formats: `GdkFileList GFile gchararray text/uri-list text/plain;charset=utf-8`.
+No reader for a value's GType is bound either:
+`Value.Transform(new Value(Type.String))` is the probe (false for an object
+value), and it is how `DropFile` also takes text — paths or URIs, one a line.
+
+Left open: a real drag is a manual check, as keys and clicks are.

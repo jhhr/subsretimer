@@ -49,7 +49,7 @@ had.
 | Dialogs | `Gtk.FileDialog.OpenAsync/SaveAsync(window)`, `SetInitialName`; `Gtk.AlertDialog.SetButtons`, `ChooseAsync` |
 | Menus and keys | `Gio.SimpleAction`, `Gtk.PopoverMenuBar.NewFromModel`, `Gtk.Application.SetAccelsForAction`, `Gtk.ShortcutController` |
 | Layout helpers | `Gtk.Fixed`, `Gtk.Overlay` |
-| File drag-and-drop | **Not cleanly**: `Gtk.DropTarget` exists but `Gdk.FileList` exposes no way to read the files and `Gio.File` (an interface) has no `GetGType` for the drop type. See step 6. |
+| File drag-and-drop | **Works, through `GFile`** (measured in phase 8; the older "not cleanly" here was wrong): `Gtk.DropTarget.New(Gio.FileHelper.GetGType(), Gdk.DragAction.Copy)`, `OnDrop` → `args.Value.GetObject() as Gio.File` → `GetPath()`. `Gdk.FileList` is indeed a dead end (`GetGType`/`NewFromArray` are bound, no `GetFiles`), and there is no `DropTarget.SetGtypes`, so a target takes one GType. `GetFormats()` on a target lists only that GType: GirCore binds none of the `gdk_content_formats_union_*` helpers that expand it to mime types. A GTK file drag offers `GdkFileList GFile gchararray text/uri-list text/plain;charset=utf-8`, so a `GFile` or a `GObject.Type.String` target both match; as text it arrives as plain paths, one a line. |
 
 ## The window, mapped from the original
 
@@ -161,7 +161,9 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    lead's to add, from the phase report.
 7. **Timeline chart.** Done 2026-09-21 (`gtk: draw the timeline chart under
    the menu`, `tests: cover the timeline chart with UI tests`).
-8. **Drag-and-drop spike.** Not started.
+8. **Drag-and-drop spike.** Done 2026-09-21 (`gtk: load a subtitle file
+   dropped on either pane`, `tests: cover the dropped-file handler with UI
+   tests`); drops kept, through `GFile`. A real drag is still a manual check.
 9. **Packaging: desktop file, icon, Windows bundle.** Not started.
 10. **Documentation pass.** Not started.
 
@@ -213,6 +215,8 @@ headless. Phase 6 before phase 7 so the chart lands with tests.
 8. Try file drops: `GObject.Type.String` (`text/plain` beside `text/uri-list`)
    and `Gdk.FileList` through `Value.GetBoxed`. Keep it only if it works
    cleanly in 0.7; otherwise record why in the report and leave drops out.
+   Outcome: neither of those two, but a third way — a drop target for the
+   `GFile` GType — is clean and was kept; see the row above and the log.
 9. Drop `NoDisplay` from the desktop file, add an icon, adapt subs2srs's
    `dist/windows/bundle-gtk.ps1` and `smoke.ps1`; the release workflow on
    `v*` tags is added by the lead.
@@ -237,7 +241,8 @@ Found while building; none is a window bug. Completed by the documentation phase
 - Real key delivery to the capture-phase controller cannot be exercised
   headless (no event synthesis in GirCore 0.7); the handlers are tested, the
   delivery is a manual check. The same holds for the mouse buttons on the
-  lists and on the timeline chart: the tests call the handlers.
+  lists and on the timeline chart, and for a file dropped on a pane: the tests
+  call the handlers, here with the `GObject.Value` a drop would carry.
 
 ## Open defaults
 
