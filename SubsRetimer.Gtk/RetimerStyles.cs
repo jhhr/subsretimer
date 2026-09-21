@@ -22,6 +22,9 @@ namespace SubsRetimer.Editor
     /// <summary>Muted one-line hint shown in an empty pane.</summary>
     internal const string Hint = "retimer-hint";
 
+    /// <summary>The timeline's two zoom buttons: they have to fit into a 64 px strip.</summary>
+    internal const string Zoom = "retimer-zoom";
+
     private const string Css =
       // Row colours. The class sits on the box that fills the cell, so the
       // background covers the whole cell and not just the label's text.
@@ -37,6 +40,8 @@ namespace SubsRetimer.Editor
       "." + OverlapGood + " { background-color: #C8F0C8; color: #1A1A1A; }" +
       "." + OverlapBad + " { background-color: #F5C0C0; color: #1A1A1A; }" +
       "." + Hint + " { color: alpha(currentColor, 0.65); font-style: italic; }" +
+      // The theme's button padding alone is taller than half the chart strip.
+      "." + Zoom + " { padding: 0; min-height: 0; min-width: 0; }" +
       // Tight cells, so a list of subtitle lines shows as many rows as it can.
       "columnview > listview > row > cell { padding: 1px 0; margin: 0; }";
 

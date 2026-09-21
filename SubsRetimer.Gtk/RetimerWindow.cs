@@ -31,6 +31,7 @@ namespace SubsRetimer.Editor
     private readonly RetimerEngine _engine = new();
     private readonly LineListView _referenceList = new();
     private readonly LineListView _targetList = new();
+    private readonly TimelineChart _chart = new();
     private readonly List<string> _savedPaths = new();
 
     private readonly Gtk.Label _average = Gtk.Label.New("");
@@ -83,6 +84,7 @@ namespace SubsRetimer.Editor
       _engine.Changed += OnEngineChanged;
       _referenceList.SelectionChanged += OnSelectionChanged;
       _targetList.SelectionChanged += OnSelectionChanged;
+      _chart.Clicked += ChartClick;
       // True vetoes the close; the prompt finishes the job when the user answers.
       OnCloseRequest += (_, _) => VetoClose();
 
@@ -379,6 +381,11 @@ namespace SubsRetimer.Editor
 
       root.Append(BuildMenuBar());
 
+      // The timeline sits where the original has it: a fixed-height strip
+      // across the whole width, directly under the menu.
+      root.Append(_chart.Widget);
+      root.Append(Gtk.Separator.New(Gtk.Orientation.Horizontal));
+
       _average.SetMarginTop(6);
       _average.SetMarginBottom(6);
       root.Append(_average);
@@ -591,6 +598,48 @@ namespace SubsRetimer.Editor
       return index;
     }
 
+    /// <summary>The timeline strip under the menu. Tests drive its zoom and its clicks through it.</summary>
+    internal TimelineChart Chart => _chart;
+
+    /// <summary>
+    /// A click on the timeline, by GDK button number: the left button walks
+    /// the target selection forward, the right one back, and the middle one
+    /// runs Time Shift, as in the original.
+    /// </summary>
+    internal void ChartClick(uint button)
+    {
+      switch (button)
+      {
+        case TimelineChart.ButtonPrimary:
+          MoveTargetSelection(1);
+          break;
+        case TimelineChart.ButtonSecondary:
+          MoveTargetSelection(-1);
+          break;
+        case TimelineChart.ButtonMiddle:
+          if (!CanTimeShift) break;
+          TimeShift();
+          ScrollToSelection();
+          break;
+      }
+    }
+
+    /// <summary>
+    /// Select the target row <paramref name="step"/> away, clamped to the
+    /// list, and bring its closest reference line along. With nothing
+    /// selected yet the first row is the answer.
+    /// </summary>
+    private void MoveTargetSelection(int step)
+    {
+      int count = _targetList.Count;
+      if (count == 0) return;
+
+      int selected = SelectedTarget;
+      _targetList.Select(selected < 0 ? 0 : Math.Clamp(selected + step, 0, count - 1));
+      // The counterpart scrolls both lists; without one this row still has to come into view.
+      if (SelectClosestOnOtherSide(Side.Target) < 0) ScrollToSelection();
+    }
+
     /// <summary>Bring both selected rows into view; <paramref name="focus"/> also moves the keyboard focus into that list.</summary>
     private void ScrollToSelection(Side? focus = null)
     {
@@ -691,6 +740,7 @@ namespace SubsRetimer.Editor
       RefreshCounters();
       RefreshDetail();
       RefreshButtons();
+      RefreshChart();
     }
 
     /// <summary>
@@ -716,7 +766,22 @@ namespace SubsRetimer.Editor
       RefreshCounters();
       RefreshDetail();
       RefreshButtons();
+      RefreshChart();
       RefreshTitle();
+    }
+
+    /// <summary>
+    /// Hand the chart the lines and the two selections and ask for a
+    /// repaint. The chart holds no state of its own beyond the zoom, so this
+    /// runs after every change and after every selection.
+    /// </summary>
+    private void RefreshChart()
+    {
+      _chart.SetLines(Side.Reference, _engine.ReferenceLines);
+      _chart.SetLines(Side.Target, _engine.TargetLines);
+      _chart.SetActive(Side.Reference, SelectedReference);
+      _chart.SetActive(Side.Target, SelectedTarget);
+      _chart.QueueDraw();
     }
 
     /// <summary>The window title carries the target's name and a <c>*</c> while it is dirty.</summary>
