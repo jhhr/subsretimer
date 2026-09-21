@@ -39,8 +39,9 @@ namespace SubsRetimer.Editor
     private readonly Gtk.Label _targetName = Gtk.Label.New(NoFile);
     private readonly Gtk.Label _referenceCounter = Gtk.Label.New("");
     private readonly Gtk.Label _targetCounter = Gtk.Label.New("");
-    private readonly Gtk.Label _referenceHint = Gtk.Label.New("No reference file. Open the subtitles already timed to the video.");
-    private readonly Gtk.Label _targetHint = Gtk.Label.New("No target file. Open the subtitles to be re-timed.");
+    private readonly Gtk.Label _referenceHint = Gtk.Label.New("No reference file. Open or drop here the subtitles already timed to the video.");
+    private readonly Gtk.Label _targetHint = Gtk.Label.New("No target file. Open or drop here the subtitles to be re-timed.");
+    private readonly Dictionary<Side, Gtk.DropTarget> _dropTargets = new();
     private readonly Gtk.ScrolledWindow _referenceScroller = Gtk.ScrolledWindow.New();
     private readonly Gtk.ScrolledWindow _targetScroller = Gtk.ScrolledWindow.New();
     private readonly Gtk.Label _referenceStart = Gtk.Label.New("-");
@@ -277,7 +278,8 @@ namespace SubsRetimer.Editor
       "Ctrl+Up / Ctrl+Down   Previous / next orange row and its closest counterpart\n" +
       "Enter                 Time Shift: move the target onto the selected reference line\n" +
       "Right-click           Select the closest line on the other side\n" +
-      "Middle-click          Time Shift";
+      "Middle-click          Time Shift\n" +
+      "Drop a file           Load it as that side's subtitles";
 
     /// <summary>What About shows: the name, the version and the licence.</summary>
     internal static string AboutText =>
@@ -464,7 +466,81 @@ namespace SubsRetimer.Editor
       pane.Append(scroller);
 
       AttachInput(side);
+      AttachDrop(side, pane);
       return pane;
+    }
+
+    // ── Dropped files ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Let a whole pane take a dropped file, empty or not: the drop target
+    /// sits on the pane's box, which covers both the hint shown before a file
+    /// is loaded and the list shown after.
+    ///
+    /// The target asks for a <c>GFile</c>. GTK deserializes the
+    /// <c>text/uri-list</c> a file manager offers into one, so a drag from a
+    /// file manager matches while a drag of plain text does not.
+    /// </summary>
+    private void AttachDrop(Side side, Gtk.Widget pane)
+    {
+      var drop = Gtk.DropTarget.New(Gio.FileHelper.GetGType(), Gdk.DragAction.Copy);
+      drop.OnDrop += (_, args) => DropFile(side, args.Value);
+      pane.AddController(drop);
+      _dropTargets[side] = drop;
+    }
+
+    /// <summary>The drop target of one pane, so a test can see what it accepts.</summary>
+    internal Gtk.DropTarget DropTargetFor(Side side) => _dropTargets[side];
+
+    /// <summary>
+    /// Load the file carried by a drop on <paramref name="side"/>'s pane.
+    /// True when the drop was used, which is the answer the drop signal wants.
+    /// GTK 4 drops cannot be synthesised, so this is also the test seam.
+    /// </summary>
+    internal bool DropFile(Side side, GObject.Value value)
+    {
+      string? path = PathFromDrop(value);
+      if (path == null) return false;   // nothing usable was dropped
+      try
+      {
+        SetFile(side, RetimerIO.Load(path));
+        return true;
+      }
+      catch (Exception ex)
+      {
+        ShowError("The subtitle file could not be opened.", ex.Message);
+        return false;
+      }
+    }
+
+    /// <summary>
+    /// The first file of a dropped value: a <c>GFile</c>, or text with one
+    /// path or <c>file://</c> URI per line, which is how GTK writes a file
+    /// list as plain text. Null when the value holds neither.
+    /// </summary>
+    private static string? PathFromDrop(GObject.Value value)
+    {
+      // GirCore 0.7 binds no reader for a value's own GType, but a value that
+      // does not hold text refuses to transform into a string, which tells the
+      // two apart without provoking a GLib assertion.
+      var text = new GObject.Value(GObject.Type.String);
+      if (value.Transform(text))
+      {
+        foreach (string line in (text.GetString() ?? "").Split('\n'))
+        {
+          string one = line.Trim();
+          if (one.Length == 0) continue;
+          // Only the first file: a pane shows one file, and a drop of several
+          // is a slip far more often than a request to load the last one.
+          var dropped = one.Contains("://", StringComparison.Ordinal)
+            ? Gio.FileHelper.NewForUri(one)
+            : Gio.FileHelper.NewForPath(one);
+          return dropped.GetPath();   // null for a URI that is not a local file
+        }
+        return null;
+      }
+
+      return (value.GetObject() as Gio.File)?.GetPath();
     }
 
     // ── Keys and mouse buttons on the lists ──────────────────────────────
