@@ -11,8 +11,11 @@ PROJ      = SubsRetimer/SubsRetimer.csproj
 PUBLISH   = SubsRetimer/bin/Release/net10.0/publish
 TESTPROJ  = SubsRetimer.Tests/SubsRetimer.Tests.csproj
 UITESTPROJ = SubsRetimer.UiTests/SubsRetimer.UiTests.csproj
+WINDIR    = out/win-x64
+MSYS2     ?= C:/msys64
+PWSH      ?= pwsh   # use PWSH=powershell on a machine without PowerShell 7
 
-.PHONY: build test test-ui install uninstall clean
+.PHONY: build test test-ui publish-windows install uninstall clean
 
 build:
 	dotnet publish $(PROJ) -c Release --no-self-contained
@@ -23,6 +26,13 @@ test:
 # Needs GTK 4 and a display: on a headless Linux box this wraps it in Xvfb.
 test-ui:
 	GSK_RENDERER=cairo xvfb-run -a dotnet test $(UITESTPROJ) -c Release
+
+# Self-contained Windows build with the GTK runtime bundled from MSYS2 UCRT64.
+# Run from PowerShell/Git Bash on Windows with mingw-w64-ucrt-x86_64-{gtk4,ntldd} installed.
+publish-windows:
+	dotnet publish $(PROJ) -c Release -r win-x64 --self-contained true -o $(WINDIR)
+	$(PWSH) -NoProfile -File dist/windows/bundle-gtk.ps1 -Msys2Root "$(MSYS2)" -PublishDir "$(WINDIR)"
+	$(PWSH) -NoProfile -File dist/windows/smoke.ps1 -PublishDir "$(WINDIR)"
 
 # The icon is installed under the name the desktop file and the window ask for
 # ("subsretimer"); updating the icon cache is left to the packager.
@@ -51,3 +61,4 @@ clean:
 	rm -rf SubsRetimer.Tests/bin SubsRetimer.Tests/obj
 	rm -rf SubsRetimer.Gtk/bin SubsRetimer.Gtk/obj
 	rm -rf SubsRetimer.UiTests/bin SubsRetimer.UiTests/obj
+	rm -rf out

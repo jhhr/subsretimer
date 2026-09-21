@@ -1,9 +1,15 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <!-- Exe on every platform, Windows included: subsretimer is a command-line
+         tool first, and the headless auto mode has to reach a real stdout to
+         print saved paths, which a WinExe does not have. The cost is a console
+         window beside the editor when it is started from Explorer on Windows;
+         subs2srs launches it with the console hidden. -->
     <OutputType>Exe</OutputType>
     <AssemblyName>subsretimer</AssemblyName>
     <RootNamespace>SubsRetimer</RootNamespace>
     <TargetFramework>net10.0</TargetFramework>
+    <RuntimeIdentifiers>linux-x64;win-x64</RuntimeIdentifiers>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <InvariantGlobalization>true</InvariantGlobalization>
