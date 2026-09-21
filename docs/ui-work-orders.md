@@ -405,3 +405,29 @@ Phase 4's actions should call `TimeShift`/`Undo`/`Redo`/`Save`/
 `SaveAsDialog` and leave enabling to `RefreshButtons`. Suite: 72 passed.
 
 Left open: nothing. Scratchpad driver `smoke3` covers it all.
+
+### Phase 4 — 2026-09-21 — `gtk: add the menu, accelerators and list navigation`
+
+Built: eleven `Gio.SimpleAction`s on the window (open-reference,
+open-target, save, save-as, quit, undo, redo, time-shift, auto-align
+disabled until phase 5, help, about), a `Gtk.PopoverMenuBar`
+File/Edit/Help, the seven accelerators the order lists, and
+`RefreshButtons` greying the actions with the buttons. Per list: a
+capture-phase `Gtk.EventControllerKey` (Left/Right, Ctrl+Up/Down, Enter)
+and two `Gtk.GestureClick`s (3 = closest line, 2 = Time Shift). Surface:
+`SelectClosestOnOtherSide(side)`, `JumpToGap(side, forward)`,
+`ActivateAction(name)`, `KeyTable`, `AboutText`; on `LineListView`
+`GapFlags`, `ScrollTo`, `IndexAt`. One engine test (a `ClosestIndex`
+tie: the earlier line wins). Suite: 73 passed.
+
+Choices / deviations: Left and Right both mean "the other list", from
+either side, as the plan words it; only they move the focus. Enter is a
+list key, not an accelerator, so it acts only with a list focused. About
+reads this assembly's informational version (0.1.0), not `Cli.Version`.
+
+The next phase must know: `ScrollTo(pos, null, flags, null)` marshals
+fine in GirCore 0.7; a click finds its row through `Widget.Pick` and
+reference equality on the bound cell boxes. Auto Align belongs in
+`RefreshButtons`, replacing its `SetEnabled(false)` in `BuildActions`.
+
+Left open: the keys and the clicks wait for phase 6 (driver `smoke4`).

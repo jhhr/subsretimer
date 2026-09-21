@@ -151,7 +151,7 @@ leaves the tree building, the tests green and committed on `ui-editor`.
    Done 2026-09-21 (`gtk: edit, save and ask before closing with changes`,
    `cli: print the paths the editor saved under --print-output`).
 4. **Keyboard and mouse: menu, accelerators, closest-line and gap navigation.**
-   Not started.
+   Done 2026-09-21 (`gtk: add the menu, accelerators and list navigation`).
 5. **Auto Align in the editor.** Not started.
 6. **UI test harness, tests for phases 2 to 5, CI job.** Not started.
 7. **Timeline chart.** Not started.
