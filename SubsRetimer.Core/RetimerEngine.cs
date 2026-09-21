@@ -33,8 +33,14 @@ namespace SubsRetimer.Core
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
 
-    /// <summary>True when the target has unsaved timing changes.</summary>
-    public bool IsDirty { get; private set; }
+    /// <summary>
+    /// True when the target's timings differ from what was last loaded or
+    /// saved. Tracked as the undo depth at which the two agree, so undoing
+    /// back to that state is clean again; -1 once that state can no longer
+    /// be reached (a new shift after an undo discards the redo history).
+    /// </summary>
+    public bool IsDirty => _undo.Count != _cleanDepth;
+    private int _cleanDepth;
 
     // ── Change notification ──────────────────────────────────────────────
 
@@ -70,7 +76,7 @@ namespace SubsRetimer.Core
       Target = file;
       _undo.Clear();
       _redo.Clear();
-      IsDirty = false;
+      _cleanDepth = 0;
       Bump();
     }
 
@@ -87,6 +93,7 @@ namespace SubsRetimer.Core
       if (fromIndex < 0 || fromIndex >= TargetLines.Count) throw new ArgumentOutOfRangeException(nameof(fromIndex));
       if (delta == TimeSpan.Zero) return;
 
+      if (_cleanDepth > _undo.Count) _cleanDepth = -1; // the clean state was in the redo history
       _undo.Push(Snapshot());
       _redo.Clear();
 
@@ -96,7 +103,6 @@ namespace SubsRetimer.Core
         lines[i].Start += delta;
         lines[i].End += delta;
       }
-      IsDirty = true;
       Bump();
     }
 
@@ -109,7 +115,6 @@ namespace SubsRetimer.Core
       if (!CanUndo) return false;
       _redo.Push(Snapshot());
       Restore(_undo.Pop());
-      IsDirty = true;
       Bump();
       return true;
     }
@@ -119,7 +124,6 @@ namespace SubsRetimer.Core
       if (!CanRedo) return false;
       _undo.Push(Snapshot());
       Restore(_redo.Pop());
-      IsDirty = true;
       Bump();
       return true;
     }
@@ -143,7 +147,7 @@ namespace SubsRetimer.Core
       if (Target == null) throw new InvalidOperationException("No target loaded.");
       string path = outputPath ?? RetimerIO.DefaultOutputPath(Target.Path);
       RetimerIO.Save(Target, path);
-      IsDirty = false;
+      _cleanDepth = _undo.Count;
       Bump(); // the title and the saved-paths list follow IsDirty
       return path;
     }

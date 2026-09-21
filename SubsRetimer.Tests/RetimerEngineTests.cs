@@ -88,6 +88,45 @@ namespace SubsRetimer.Tests
     }
 
     [Fact]
+    public void Undo_BackToTheLoadedState_IsCleanAgain()
+    {
+      var e = Engine(Fixtures.Lines(3), Fixtures.Lines(3));
+      e.ShiftFrom(0, Ms(500));
+      e.ShiftFrom(1, Ms(250));
+      Assert.True(e.IsDirty);
+      e.Undo();
+      Assert.True(e.IsDirty);
+      e.Undo();
+      Assert.False(e.IsDirty);   // the timings match the file again
+      e.Redo();
+      Assert.True(e.IsDirty);
+    }
+
+    [Fact]
+    public void Save_MarksTheCleanDepth_AndRedoCanReachItAgain()
+    {
+      var e = new RetimerEngine();
+      e.LoadTarget(RetimerIO.Load(Fixtures.WriteTemp(".srt", Fixtures.SrtFile(Fixtures.Lines(3)))));
+      e.ShiftFrom(0, Ms(500));
+      string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".srt");
+      try
+      {
+        e.Save(path);
+        Assert.False(e.IsDirty);
+        e.Undo();
+        Assert.True(e.IsDirty);    // the loaded state differs from the saved file
+        e.Redo();
+        Assert.False(e.IsDirty);   // back to what was saved
+        e.Undo();
+        e.ShiftFrom(0, Ms(999));   // diverges from the saved history at the same depth
+        Assert.True(e.IsDirty);
+        e.Undo();
+        Assert.True(e.IsDirty);    // the saved state is no longer reachable
+      }
+      finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void UndoRedo_RestoresTimings()
     {
       var e = Engine(Fixtures.Lines(4), Fixtures.Lines(4));

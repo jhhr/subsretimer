@@ -95,10 +95,9 @@ namespace SubsRetimer.UiTests.Tests
       });
       Assert.True(undone);
       Assert.Equal(before.Start, afterUndo.Target);
-      // The star stays: RetimerEngine.Undo sets IsDirty unconditionally, since
-      // it does not track whether the file on disk matches again.
-      Assert.True(afterUndo.IsDirty);
-      Assert.StartsWith("*", afterUndo.Title);
+      // Undoing back to the loaded state is clean again: the star goes.
+      Assert.False(afterUndo.IsDirty);
+      Assert.False(afterUndo.Title.StartsWith('*'));
 
       bool redone = false;
       await scope.RunAsync(window, () => redone = window.Redo());
