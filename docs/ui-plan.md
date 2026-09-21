@@ -102,10 +102,21 @@ So that phases do not re-derive them:
   by every operation that changed something) and the static
   `NextLargeGap(flags, from)` / `PreviousLargeGap(flags, from)`.
 - `Cli.RunEditor` (`SubsRetimer/Cli.cs`) validates the given paths with
-  `LoadChecked` then exits 1 with "not available in this build yet". The test
-  `CliTests.Editor_NotAvailableYet_ExitsOne` pins that and changes in phase 2.
+  `LoadChecked`, then (since phase 2) opens the window through the seams
+  `Cli.CanOpenDisplay` / `Cli.RunWindow` and turns the saved paths into the
+  exit code, catching everything the editor can throw.
   `Cli.Run` maps `IOException`, `ArgumentException`, `FormatException` and
   friends to exit 1 with the message on stderr; other exceptions propagate.
+- **Detecting "no display" in GirCore 0.7** (measured in phase 2): the route
+  this plan first assumed does not work. `Gtk.Module.Initialize()` calls
+  `gtk_init()`, which prints "Failed to open display" and **exits the
+  process** when there is none, and every GTK or GDK call before it fails
+  with `DllNotFoundException` because that method is what installs GirCore's
+  library resolver. `Gdk.Module.Initialize()` installs the resolver alone;
+  `Gdk.Display.GetDefault()` is null until something opens a display, so the
+  question is answered by `Gdk.Display.Open(null)` returning null. A display
+  opened that way becomes the default and is reused by GTK afterwards.
+  `EditorHost.CanOpenDisplay` does exactly this.
 - subs2srs starts GTK with `Gtk.Application.New(id, Gio.ApplicationFlags.FlagsNone)`
   and `RunWithSynchronizationContext(null)` (`subs2srs/Program.cs` line 75).
   Its UI test fixture uses `ApplicationFlags.NonUnique`, `Hold()` to keep the
@@ -134,7 +145,8 @@ leaves the tree building, the tests green and committed on `ui-editor`.
 1. **Core: change notification and gap navigation.** Done 2026-09-21
    (`core: notify on change and navigate large gaps`).
 2. **Gtk skeleton: window, lists, colours, detail strip, `RunEditor`.**
-   Not started.
+   Done 2026-09-21 (`gtk: add the editor window with the two line lists`,
+   `cli: open the editor window from the command line`).
 3. **Editing: Time Shift, undo/redo, dirty state, Save/Save As, close prompt.**
    Not started.
 4. **Keyboard and mouse: menu, accelerators, closest-line and gap navigation.**

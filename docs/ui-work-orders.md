@@ -327,3 +327,29 @@ on the caller's thread and handler exceptions are not caught — one that throws
 propagates out of `ShiftFrom`/`Save`.
 
 Left open: nothing from this phase. No GTK code, no display needed.
+
+### Phase 2 — 2026-09-21 — `gtk: add the editor window with the two line lists`, `cli: open the editor window from the command line`
+
+Built: `SubsRetimer.Gtk`, namespace `SubsRetimer.Editor` (a namespace
+`SubsRetimer.Gtk` shadows the global `Gtk` in every file): `RetimerWindow`
+(top strip, two panes, detail strip, Open buttons), `LineListView` (store,
+columns, bound-cell map, colours), `RetimerStyles`, `EditorHost` (display
+check, `Gtk.Application`). `Cli.RunEditor` opens it behind the seams
+`Cli.CanOpenDisplay` / `Cli.RunWindow`; 69 tests pass.
+
+Choices / deviations: the overlap percent is the target line's overlap with
+the reference, green from 50 % up. `Gtk.AlertDialog` has no `New()` in 0.7:
+`new Gtk.AlertDialog()`. A dismissed `FileDialog` arrives as a
+`GLib.GException` with no readable code, so every one from `OpenAsync`
+counts as dismissed. Surface beyond the order: `SetFile`, `StoreRebuilds`
+and `BoundStartText(side, index)`, which prove an in-place refresh.
+
+The next phase must know: `Gtk.Module.Initialize()` calls `gtk_init()` and
+exits a display-less process, so nothing under `dotnet test` may touch GTK;
+the no-display test spawns the real executable. The working check is
+`Gdk.Module.Initialize()` + `Gdk.Display.Open(null)` (plan, "Facts
+checked"). `RetimerWindow.SavedPaths` is the saving seam and `RunEditor`
+already returns 0 when it is non-empty; only `--print-output` is missing.
+
+Left open: `Makefile` `clean` should also remove `SubsRetimer.Gtk/bin` and
+`SubsRetimer.Gtk/obj` (reported; `ci.yml` needs nothing). No UI tests yet.
