@@ -168,8 +168,50 @@ namespace SubsRetimer.Core
       return inter / d1;
     }
 
-    /// <summary>Index of the line in <paramref name="lines"/> whose start is closest to <paramref name="start"/>. -1 when empty.</summary>
-    public static int ClosestIndex(TimeSpan start, IReadOnlyList<RetimerLine> lines)
+    /// <summary>
+    /// Index of the line in <paramref name="lines"/> whose start is closest to
+    /// <paramref name="start"/>, the earlier one on a tie. -1 when empty.
+    ///
+    /// Any order is answered correctly. Files load sorted, but a Time Shift
+    /// with a negative delta can move a line before the one above it, and the
+    /// target list is never re-sorted (undo and the row numbers depend on
+    /// that). A sorted list is binary-searched; anything else is scanned.
+    /// </summary>
+    public static int ClosestIndex(TimeSpan start, IReadOnlyList<RetimerLine> lines) =>
+      IsSortedByStart(lines) ? ClosestIndexSorted(start, lines) : ClosestIndexScan(start, lines);
+
+    /// <summary>True when every line starts no earlier than the one before it.</summary>
+    public static bool IsSortedByStart(IReadOnlyList<RetimerLine> lines)
+    {
+      for (int i = 1; i < lines.Count; i++)
+        if (lines[i].Start < lines[i - 1].Start) return false;
+      return true;
+    }
+
+    /// <summary><paramref name="lines"/> itself when it is sorted by start, otherwise a stably sorted copy.</summary>
+    internal static IReadOnlyList<RetimerLine> SortedByStart(IReadOnlyList<RetimerLine> lines) =>
+      IsSortedByStart(lines) ? lines : lines.OrderBy(l => l.Start).ToList();
+
+    /// <summary>Linear <see cref="ClosestIndex"/> for a list that is out of order: the earlier start wins a tie, then the lower index.</summary>
+    private static int ClosestIndexScan(TimeSpan start, IReadOnlyList<RetimerLine> lines)
+    {
+      int best = -1;
+      TimeSpan bestDistance = TimeSpan.MaxValue;
+      for (int i = 0; i < lines.Count; i++)
+      {
+        TimeSpan distance = (lines[i].Start - start).Duration();
+        if (best < 0 || distance < bestDistance ||
+            (distance == bestDistance && lines[i].Start < lines[best].Start))
+        {
+          best = i;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    /// <summary><see cref="ClosestIndex"/> for a list known to be sorted by start: a binary search, for the loops that call it per line.</summary>
+    internal static int ClosestIndexSorted(TimeSpan start, IReadOnlyList<RetimerLine> lines)
     {
       if (lines.Count == 0) return -1;
       int lo = 0, hi = lines.Count - 1;
@@ -184,10 +226,14 @@ namespace SubsRetimer.Core
       return lo;
     }
 
-    /// <summary>Best overlap of a (possibly shifted) line against <paramref name="others"/>. Negative when nothing overlaps.</summary>
+    /// <summary>
+    /// Best overlap of a (possibly shifted) line against <paramref name="others"/>,
+    /// which must be sorted by start (a loaded file is; see
+    /// <see cref="IsSortedByStart"/>). Negative when nothing overlaps.
+    /// </summary>
     public static double BestOverlap(TimeSpan start, TimeSpan end, IReadOnlyList<RetimerLine> others, int window = 12)
     {
-      int c = ClosestIndex(start, others);
+      int c = ClosestIndexSorted(start, others);
       if (c < 0) return double.NegativeInfinity;
       double best = double.NegativeInfinity;
       int from = Math.Max(0, c - window), to = Math.Min(others.Count - 1, c + window);
@@ -249,11 +295,15 @@ namespace SubsRetimer.Core
       return -1;
     }
 
-    /// <summary>True for lines with no overlap in <paramref name="others"/> (gray rows). All false when either side is empty.</summary>
+    /// <summary>
+    /// True for lines with no overlap in <paramref name="others"/> (gray rows).
+    /// All false when either side is empty. Either list may be out of order.
+    /// </summary>
     public static bool[] MismatchFlags(IReadOnlyList<RetimerLine> lines, IReadOnlyList<RetimerLine> others)
     {
       var flags = new bool[lines.Count];
       if (others.Count == 0) return flags;
+      others = SortedByStart(others);   // BestOverlap searches it
       for (int i = 0; i < lines.Count; i++)
         flags[i] = BestOverlap(lines[i], others) <= 0;
       return flags;
@@ -267,14 +317,14 @@ namespace SubsRetimer.Core
     /// </summary>
     public (double All, double Matched) AverageMismatchSeconds()
     {
-      var t = TargetLines; var r = ReferenceLines;
+      var t = TargetLines; var r = SortedByStart(ReferenceLines);
       if (t.Count == 0 || r.Count == 0) return (0, 0);
 
       double sumAll = 0, sumMatched = 0;
       int matched = 0;
       foreach (var line in t)
       {
-        int c = ClosestIndex(line.Start, r);
+        int c = ClosestIndexSorted(line.Start, r);
         double d = Math.Abs((line.Start - r[c].Start).TotalSeconds);
         sumAll += d;
         if (BestOverlap(line, r) > 0) { sumMatched += d; matched++; }

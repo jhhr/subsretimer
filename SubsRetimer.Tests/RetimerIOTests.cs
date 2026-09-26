@@ -160,6 +160,62 @@ namespace SubsRetimer.Tests
       string outPath = Fixtures.TempPath(".srt");
       RetimerIO.Save(file, outPath);
       Assert.Equal(File.ReadAllBytes(path), File.ReadAllBytes(outPath));
+      Assert.False(file.HasInvalidBytes);
+    }
+
+    // ── Bytes the encoding cannot read ───────────────────────────────────
+
+    [Fact]
+    public void Load_BytesNotValidInTheEncoding_AreFlagged()
+    {
+      Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+      string content = "1\n00:00:01,000 --> 00:00:02,000\n日本語のテキスト\n\n";
+      string path = Fixtures.WriteTemp(".srt", content, Encoding.GetEncoding("shift_jis"));
+
+      // Read as the default UTF-8, the Shift-JIS text cannot survive: the
+      // file loads (its timings are fine) but says so.
+      var wrong = RetimerIO.Load(path);
+      Assert.True(wrong.HasInvalidBytes);
+      Assert.Contains('\uFFFD', wrong.Lines[0].Text);
+      Assert.Equal(TimeSpan.FromSeconds(1), wrong.Lines[0].Start);
+
+      Assert.False(RetimerIO.Load(path, Encoding.GetEncoding("shift_jis")).HasInvalidBytes);
+    }
+
+    [Fact]
+    public void Load_ValidUtf8_WithOrWithoutBom_IsNotFlagged()
+    {
+      string content = "1\n00:00:01,000 --> 00:00:02,000\nこんにちは é\n\n";
+      Assert.False(RetimerIO.Load(Fixtures.WriteTemp(".srt", content)).HasInvalidBytes);
+      Assert.False(RetimerIO.Load(Fixtures.WriteTemp(".srt", content, bom: true)).HasInvalidBytes);
+    }
+
+    // ── Output names ─────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(SubtitleFormat.Ass, "out.ass", true)]
+    [InlineData(SubtitleFormat.Ass, "out.SSA", true)]
+    [InlineData(SubtitleFormat.Ass, "out.srt", false)]
+    [InlineData(SubtitleFormat.Srt, "out.srt", true)]
+    [InlineData(SubtitleFormat.Srt, "out.ass", false)]
+    [InlineData(SubtitleFormat.Srt, "out.ssa", false)]
+    // Not a subtitle name at all: the caller's business, as before.
+    [InlineData(SubtitleFormat.Ass, "out.tmp", true)]
+    [InlineData(SubtitleFormat.Srt, "out", true)]
+    public void OutputFormatProblem_OnlyRefusesTheOtherFormatsExtension(SubtitleFormat format, string path, bool fine)
+    {
+      Assert.Equal(fine, RetimerIO.OutputFormatProblem(format, path) == null);
+    }
+
+    [Fact]
+    public void Save_AsTheOtherFormatsExtension_ThrowsAndWritesNothing()
+    {
+      var file = RetimerIO.Load(Fixtures.WriteTemp(".ass", Fixtures.AssFile(Fixtures.Lines(3))));
+      string outPath = Fixtures.TempPath(".srt");
+
+      var ex = Assert.Throws<NotSupportedException>(() => RetimerIO.Save(file, outPath));
+      Assert.Contains("ASS subtitles are saved as .ass or .ssa", ex.Message);
+      Assert.False(File.Exists(outPath));
     }
 
     // ── Misc ─────────────────────────────────────────────────────────────
