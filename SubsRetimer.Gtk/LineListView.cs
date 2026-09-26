@@ -192,17 +192,25 @@ namespace SubsRetimer.Editor
       return -1;
     }
 
-    /// <summary>Show a different set of lines. The one place the store is rebuilt.</summary>
+    /// <summary>The model behind the view. Tests count its items-changed signals.</summary>
+    internal Gio.ListStore Store => _store;
+
+    /// <summary>
+    /// Show a different set of lines. The one place the store is rebuilt, in
+    /// a single splice: one items-changed for the whole file instead of one
+    /// per line, each of which the selection and the view would handle.
+    /// </summary>
     internal void SetLines(IReadOnlyList<RetimerLine> lines)
     {
       _lines = lines;
       _gap = new bool[lines.Count];
       _mismatch = new bool[lines.Count];
 
-      _store.RemoveAll();
+      var rows = new GObject.Object[lines.Count];
+      for (int i = 0; i < rows.Length; i++)
+        rows[i] = Gtk.StringObject.New(i.ToString(CultureInfo.InvariantCulture));
       foreach (var column in _columns) column.Bound.Clear();
-      for (int i = 0; i < lines.Count; i++)
-        _store.Append(Gtk.StringObject.New(i.ToString(CultureInfo.InvariantCulture)));
+      _store.Splice(0, _store.GetNItems(), rows, (uint)rows.Length);
       StoreRebuilds++;
     }
 
@@ -292,10 +300,16 @@ namespace SubsRetimer.Editor
       factory.OnUnbind += (_, args) =>
       {
         var item = (Gtk.ListItem)args.Object;
-        // Unbind runs before GTK gives the cell its new row, so the position
-        // is still the row this cell was showing.
+        // Only this cell's own entry goes. GTK does not promise that the
+        // position still names the row this cell was showing, nor that a
+        // cell is unbound before another is bound to its row (measured: under
+        // scrolling a cell is unbound at a position another cell now holds),
+        // and removing that other cell's entry would leave a row on screen
+        // that Refresh never rewrites.
         uint position = item.GetPosition();
-        if (position != Gtk.Constants.INVALID_LIST_POSITION) column.Bound.Remove((int)position);
+        if (position != Gtk.Constants.INVALID_LIST_POSITION &&
+            column.Bound.TryGetValue((int)position, out var cell) && SameObject(cell.Item, item))
+          column.Bound.Remove((int)position);
       };
 
       var listColumn = Gtk.ColumnViewColumn.New(title, factory);
@@ -310,6 +324,14 @@ namespace SubsRetimer.Editor
       }
       return listColumn;
     }
+
+    /// <summary>
+    /// Whether two wrappers stand for the same GObject. The list items are
+    /// GTK's, not ours, so the handles are compared rather than trusting
+    /// GirCore to hand back the same wrapper every time.
+    /// </summary>
+    private static bool SameObject(GObject.Object a, GObject.Object b) =>
+      a.Handle.DangerousGetHandle() == b.Handle.DangerousGetHandle();
 
     private void Apply(CellColumn column, int index, BoundCell cell)
     {

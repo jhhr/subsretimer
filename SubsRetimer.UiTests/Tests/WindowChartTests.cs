@@ -188,6 +188,72 @@ namespace SubsRetimer.UiTests.Tests
       Assert.Equal(TimelineLayout.MaxScaleSeconds, scope.Read(() => window.Chart.ScaleSeconds));
     }
 
+    /// <summary>
+    /// Space or Enter on a focused zoom button activates it, which GTK turns
+    /// into "clicked", the same signal a plain left click ends in. Each
+    /// activation is one small step. GTK shows the button pressed for a
+    /// moment first, so "clicked" arrives a quarter of a second later.
+    /// </summary>
+    [GtkFact]
+    public async Task ZoomButtons_ActivatedFromTheKeyboard_ZoomOneSmallStep()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var (window, _) = await OpenSelectedAsync(scope);
+
+      async Task ActivateAndWait(Gtk.Button button, int expected) =>
+        await scope.Fixture.RunOnGtkAsync(async () =>
+        {
+          button.Activate();
+          await Pump.WaitUntilAsync(
+            () => window.Chart.ScaleSeconds == expected, TimeSpan.FromSeconds(3), "the zoom button's clicked");
+          await Pump.DelayAsync(400);   // and no second step follows
+          return true;
+        });
+
+      await ActivateAndWait(window.Chart.ZoomInButton, TimelineLayout.DefaultScaleSeconds - TimelineChart.SmallZoomStep);
+      Assert.Equal(TimelineLayout.DefaultScaleSeconds - TimelineChart.SmallZoomStep, scope.Read(() => window.Chart.ScaleSeconds));
+
+      await ActivateAndWait(window.Chart.ZoomOutButton, TimelineLayout.DefaultScaleSeconds);
+      Assert.Equal(TimelineLayout.DefaultScaleSeconds, scope.Read(() => window.Chart.ScaleSeconds));
+    }
+
+    /// <summary>Draw <paramref name="text"/> the way a bar's text is drawn, on a surface of its own, and return the pixels.</summary>
+    private static byte[] DrawBar(string text)
+    {
+      using var surface = new Cairo.ImageSurface(Cairo.Format.Argb32, 240, 20);
+      var cr = new Cairo.Context(surface);
+      cr.SetSourceRgb(0.3, 0.3, 0.3);   // the bar
+      cr.Paint();
+      TimelineChart.DrawBarText(cr, PangoCairo.Functions.CreateLayout(cr), text, new ChartRect(0, 0, 240, 20));
+      surface.Flush();
+      return surface.GetData().ToArray();
+    }
+
+    /// <summary>
+    /// Bar text goes through Pango, which falls back to another font for the
+    /// characters the default one lacks. Cairo's toy text API did not: every
+    /// Japanese character came out as the same empty box, so Japanese text
+    /// drew exactly like any other run of characters "Sans" does not have.
+    /// Pango tells them apart whatever fonts this machine has: real glyphs
+    /// where a font covers them, boxes with the code point in them where not.
+    /// </summary>
+    [GtkFact]
+    public async Task BarText_DrawsCharactersTheDefaultFontLacks()
+    {
+      using var scope = new UiTestScope(_gtk);
+      await scope.OpenWindowAsync();   // GTK, and with it Pango, is up
+
+      var drawn = scope.Read(() => new
+      {
+        Japanese = DrawBar("日本語"),
+        Unassigned = DrawBar("\U000F0001\U000F0002\U000F0003"),
+        Empty = DrawBar(""),
+      });
+
+      Assert.NotEqual(drawn.Empty, drawn.Japanese);   // something was drawn at all
+      Assert.NotEqual(drawn.Unassigned, drawn.Japanese);
+    }
+
     [GtkFact]
     public async Task Chart_DrawsWithoutThrowing()
     {

@@ -44,9 +44,12 @@ namespace SubsRetimer.Editor
     private static readonly (double R, double G, double B) TargetActive = Rgb(0x41, 0x69, 0xE1);
     private static readonly (double R, double G, double B) BarText = Rgb(0xFF, 0xFF, 0xFF);
 
-    private const string FontFamily = "Sans";
-    private const double LabelFontSize = 9.0;
-    private const double BarFontSize = 10.0;
+    // Through Pango, not Cairo's toy text API: that one draws with the one
+    // font "Sans" resolves to (DejaVu Sans, typically), with no fallback for
+    // the characters it lacks and no shaping, so a Japanese line came out as
+    // a row of empty boxes. Sizes are in pixels, as the toy API's were.
+    private static readonly Pango.FontDescription LabelFont = Pango.FontDescription.FromString("Sans 9px");
+    private static readonly Pango.FontDescription BarFont = Pango.FontDescription.FromString("Sans 10px");
 
     private readonly Gtk.Box _root = Gtk.Box.New(Gtk.Orientation.Horizontal, 0);
     private readonly Gtk.DrawingArea _area = Gtk.DrawingArea.New();
@@ -79,8 +82,11 @@ namespace SubsRetimer.Editor
         button.SetTooltipText(zoomIn
           ? "Show less time: -2 s, right click -10 s, middle click the smallest scale"
           : "Show more time: +2 s, right click +10 s, middle click the largest scale");
-        // Capture phase and "any button": GtkButton itself only reacts to the
-        // primary button, and its own gesture would claim that one first.
+        // The primary button and the keyboard (Space, Enter) both end in
+        // "clicked", so the small step lives there. GtkButton reacts to no
+        // other mouse button, so those are caught separately, in the capture
+        // phase, and the primary one is left alone there.
+        button.OnClicked += (_, _) => SetScale(zoomIn ? ScaleSeconds - SmallZoomStep : ScaleSeconds + SmallZoomStep);
         var clicks = Gtk.GestureClick.New();
         clicks.SetButton(0);
         clicks.SetPropagationPhase(Gtk.PropagationPhase.Capture);
@@ -104,6 +110,12 @@ namespace SubsRetimer.Editor
 
     /// <summary>The strip to pack into the window: the zoom buttons and the drawing area.</summary>
     internal Gtk.Widget Widget => _root;
+
+    /// <summary>The "+" button, for the tests.</summary>
+    internal Gtk.Button ZoomInButton => _zoomIn;
+
+    /// <summary>The "-" button, for the tests.</summary>
+    internal Gtk.Button ZoomOutButton => _zoomOut;
 
     /// <summary>Seconds visible across the chart, always within the clamp.</summary>
     internal int ScaleSeconds { get; private set; } = TimelineLayout.DefaultScaleSeconds;
@@ -154,7 +166,10 @@ namespace SubsRetimer.Editor
     /// </summary>
     internal void ClickAt(uint button, double x, double y) => Clicked?.Invoke(button);
 
-    /// <summary>A click on a zoom button: 2 s, 10 s on the right button, the whole way on the middle one.</summary>
+    /// <summary>
+    /// A press on a zoom button: 10 s on the right button, the whole way on
+    /// the middle one. The primary button's 2 s come from "clicked".
+    /// </summary>
     private void OnZoomPressed(uint button, bool zoomIn)
     {
       switch (button)
@@ -164,9 +179,6 @@ namespace SubsRetimer.Editor
           break;
         case ButtonMiddle:
           SetScale(zoomIn ? TimelineLayout.MinScaleSeconds : TimelineLayout.MaxScaleSeconds);
-          break;
-        default:
-          SetScale(zoomIn ? ScaleSeconds - SmallZoomStep : ScaleSeconds + SmallZoomStep);
           break;
       }
     }
@@ -202,9 +214,11 @@ namespace SubsRetimer.Editor
         DrawScale(cr, geometry);
         if (layout != null)
         {
-          DrawBars(cr, layout, Side.Reference, _reference, _referenceActive, ReferenceActive);
-          DrawBars(cr, layout, Side.Target, _target, _targetActive, TargetActive);
-          DrawLabels(cr, layout);
+          // One Pango layout for every run of text in this frame.
+          var text = PangoCairo.Functions.CreateLayout(cr);
+          DrawBars(cr, text, layout, Side.Reference, _reference, _referenceActive, ReferenceActive);
+          DrawBars(cr, text, layout, Side.Target, _target, _targetActive, TargetActive);
+          DrawLabels(cr, text, layout);
         }
         DrawCount++;
       }
@@ -244,12 +258,9 @@ namespace SubsRetimer.Editor
 
     /// <summary>One row of dialogue bars, the active line in its own colour.</summary>
     private static void DrawBars(
-      Cairo.Context cr, TimelineLayout layout, Side row,
+      Cairo.Context cr, Pango.Layout text, TimelineLayout layout, Side row,
       IReadOnlyList<RetimerLine> lines, int activeIndex, (double R, double G, double B) activeColour)
     {
-      cr.SelectFontFace(FontFamily, Cairo.FontSlant.Normal, Cairo.FontWeight.Normal);
-      cr.SetFontSize(BarFontSize);
-
       foreach (int index in layout.VisibleLines(lines))
       {
         var rect = layout.BarRect(lines[index], row);
@@ -266,12 +277,16 @@ namespace SubsRetimer.Editor
         cr.LineTo(Crisp(rect.X), rect.Y + rect.Height);
         cr.Stroke();
 
-        DrawBarText(cr, lines[index].DisplayText, rect);
+        DrawBarText(cr, text, lines[index].DisplayText, rect);
       }
     }
 
-    /// <summary>The line's text inside its bar, clipped to it.</summary>
-    private static void DrawBarText(Cairo.Context cr, string text, ChartRect rect)
+    /// <summary>
+    /// The line's text inside its bar, clipped to it and centred on it
+    /// vertically. Internal so that a test can draw one bar on its own
+    /// surface.
+    /// </summary>
+    internal static void DrawBarText(Cairo.Context cr, Pango.Layout layout, string text, ChartRect rect)
     {
       if (text.Length == 0 || rect.Width < 4) return;
 
@@ -279,39 +294,36 @@ namespace SubsRetimer.Editor
       cr.Rectangle(rect.X, rect.Y, rect.Width, rect.Height);
       cr.Clip();
       SetColour(cr, BarText);
-      cr.TextExtents(text, out var extents);
-      cr.MoveTo(rect.X + 2, Baseline(rect.Y + rect.Height / 2.0, extents));
-      cr.ShowText(text);
+      layout.SetFontDescription(BarFont);
+      layout.SetText(text, -1);
+      layout.GetPixelSize(out _, out int height);
+      cr.MoveTo(rect.X + 2, rect.Y + (rect.Height - height) / 2.0);
+      PangoCairo.Functions.ShowLayout(cr, layout);
       cr.Restore();
     }
 
     /// <summary>The time over every labelled major tick, on an opaque patch so the tick does not run through it.</summary>
-    private static void DrawLabels(Cairo.Context cr, TimelineLayout layout)
+    private static void DrawLabels(Cairo.Context cr, Pango.Layout layout, TimelineLayout geometry)
     {
-      cr.SelectFontFace(FontFamily, Cairo.FontSlant.Normal, Cairo.FontWeight.Normal);
-      cr.SetFontSize(LabelFontSize);
-      double centre = layout.HeaderHeight / 2.0;
+      layout.SetFontDescription(LabelFont);
+      double centre = geometry.HeaderHeight / 2.0;
 
-      foreach (var (x, text) in layout.TickLabels())
+      foreach (var (x, text) in geometry.TickLabels())
       {
-        cr.TextExtents(text, out var extents);
-        double left = x - extents.Width / 2.0 - extents.XBearing;
-        double baseline = Baseline(centre, extents);
+        layout.SetText(text, -1);
+        layout.GetPixelSize(out int width, out int height);
+        double left = x - width / 2.0;
+        double top = centre - height / 2.0;
 
         SetColour(cr, Background);
-        cr.Rectangle(left + extents.XBearing - 2, baseline + extents.YBearing - 1,
-          extents.Width + 4, extents.Height + 2);
+        cr.Rectangle(left - 2, top, width + 4, height);
         cr.Fill();
 
         SetColour(cr, LabelText);
-        cr.MoveTo(left, baseline);
-        cr.ShowText(text);
+        cr.MoveTo(left, top);
+        PangoCairo.Functions.ShowLayout(cr, layout);
       }
     }
-
-    /// <summary>The baseline that centres a run of text's ink on <paramref name="centreY"/>.</summary>
-    private static double Baseline(double centreY, Cairo.TextExtents extents) =>
-      centreY - extents.YBearing - extents.Height / 2.0;
 
     /// <summary>Put a one pixel wide line on a pixel instead of across two of them.</summary>
     private static double Crisp(double x) => Math.Floor(x) + 0.5;
