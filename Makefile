@@ -7,6 +7,10 @@ APPDIR    = $(DESTDIR)$(PREFIX)/share/applications
 LICDIR    = $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME)
 ICONDIR   = $(DESTDIR)$(PREFIX)/share/icons/hicolor
 ICONSIZES = 16 32 48
+# The desktop entry is named after the application id, which GTK 4 sends as
+# the Wayland app_id: that is how a compositor finds the entry, and with it
+# the icon, for the running window. On X11 StartupWMClass does the same job.
+DESKTOP   = io.github.jhhr.subsretimer.desktop
 PROJ      = SubsRetimer/SubsRetimer.csproj
 PUBLISH   = SubsRetimer/bin/Release/net10.0/publish
 TESTPROJ  = SubsRetimer.Tests/SubsRetimer.Tests.csproj
@@ -40,7 +44,7 @@ install: build
 	install -dm755 "$(LIBDIR)"
 	cp -r $(PUBLISH)/* "$(LIBDIR)/"
 	install -Dm755 dist/subsretimer.sh "$(BINDIR)/subsretimer"
-	install -Dm644 dist/subsretimer.desktop "$(APPDIR)/subsretimer.desktop"
+	install -Dm644 dist/$(DESKTOP) "$(APPDIR)/$(DESKTOP)"
 	install -Dm644 LICENSE "$(LICDIR)/LICENSE"
 	for s in $(ICONSIZES); do \
 	  install -Dm644 "assets/subsretimer-$$s.png" "$(ICONDIR)/$${s}x$${s}/apps/subsretimer.png"; \
@@ -49,7 +53,8 @@ install: build
 uninstall:
 	rm -rf "$(LIBDIR)"
 	rm -f  "$(BINDIR)/subsretimer"
-	rm -f  "$(APPDIR)/subsretimer.desktop"
+	rm -f  "$(APPDIR)/$(DESKTOP)"
+	rm -f  "$(APPDIR)/subsretimer.desktop"   # its earlier name
 	rm -rf "$(LICDIR)"
 	for s in $(ICONSIZES); do \
 	  rm -f "$(ICONDIR)/$${s}x$${s}/apps/subsretimer.png"; \

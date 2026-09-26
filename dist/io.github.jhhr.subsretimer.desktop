@@ -8,3 +8,4 @@ Categories=Education;Languages;AudioVideo;Audio;Video;
 Terminal=false
 Type=Application
 StartupNotify=true
+StartupWMClass=subsretimer

@@ -165,7 +165,7 @@ namespace SubsRetimer.UiTests.Tests
 
     /// <summary>
     /// The window asks the icon theme for "subsretimer", the name
-    /// <c>dist/subsretimer.desktop</c> and the installed PNGs carry. Whether
+    /// <c>dist/io.github.jhhr.subsretimer.desktop</c> and the installed PNGs carry. Whether
     /// the running theme has that icon depends on the installation, so only
     /// the name is checked here.
     /// </summary>

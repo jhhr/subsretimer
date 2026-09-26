@@ -16,4 +16,4 @@ Where they are used:
   `$(PREFIX)/share/icons/hicolor/<size>x<size>/apps/subsretimer.png`, and copied into
   `share\icons\hicolor\...` inside the Windows bundle by `dist/windows/bundle-gtk.ps1`.
   The window asks for them by name (`Gtk.Window.SetIconName("subsretimer")`), which is also
-  the `Icon=` of `dist/subsretimer.desktop`.
+  the `Icon=` of `dist/io.github.jhhr.subsretimer.desktop`.

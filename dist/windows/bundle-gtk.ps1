@@ -130,7 +130,7 @@ New-Item -ItemType Directory -Force $hicolorDst | Out-Null
 Copy-Item (Join-Path $ucrt 'share\icons\hicolor\index.theme') -Destination $hicolorDst -Force
 
 # The window asks the icon theme for "subsretimer" (RetimerWindow.AppIconName), the same
-# name dist/subsretimer.desktop uses; WindowsRuntimeSetup points XDG_DATA_DIRS at share\.
+# name dist/io.github.jhhr.subsretimer.desktop uses; WindowsRuntimeSetup points XDG_DATA_DIRS at share\.
 foreach ($size in 16, 32, 48) {
     $src = Join-Path $repoRoot "assets\subsretimer-$size.png"
     if (Test-Path $src) {
