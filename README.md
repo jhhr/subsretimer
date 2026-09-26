@@ -31,19 +31,34 @@ Options:
   --ref-encoding NAME     encoding of REFERENCE (default: utf-8)
   --target-encoding NAME  encoding of TARGET (default: utf-8)
   --print-output          print the path of each saved file to stdout
+  --check-editor          check that the editor can start here (GTK 4 and a
+                          display), then exit: 0 if it can, 1 if not
   -h, --help              show this help
   --version               show the version
+
+In the editor, Save writes to --output when it is given, else where Save As
+last wrote, else to <TARGET>_retimed.<ext>, asking before it replaces a file
+there that it did not write. Files opened from the editor are read in the
+encodings given here. A TARGET that is not valid text in its encoding is
+refused: saving it would change the characters that could not be read.
 ```
 
 Supported formats: `.ass`, `.ssa`, `.srt`. Output keeps the input's encoding,
 byte-order mark, line endings, header, styles, numbering and text; only the
-timestamps change.
+timestamps change. That is why a target whose bytes are not valid in the
+encoding it is read with (a Shift-JIS file read as the default UTF-8, say) is
+an error: its text would be saved with U+FFFD in place of what could not be
+read. Name the encoding with `--target-encoding`; `latin1` keeps any byte as it
+is. The output is always written in the target's own format, so `--output`
+refuses the other format's extension (`.srt` for an ASS target, and back).
 
 Without `--auto` the editor window opens. Both file arguments are optional
 there: a pane left empty is filled from the window instead. Exit status is `0`
 when something was saved, `2` when the window was closed without saving, and
 `1` on an error — including `cannot open a display; use --auto`, the answer on
-a machine with no display server.
+a machine with no display server, and `GTK 4 could not be loaded`, the answer
+on one without GTK 4. `--check-editor` asks the same question without opening
+the window.
 
 Batch example, one season with English subs timed to the video and Japanese
 subs that are not:
@@ -113,12 +128,20 @@ by 2 seconds, by 10 with the right mouse button, and all the way to 4 or 120
 seconds with the middle one.
 
 **Saving.** Save (Ctrl+S) writes `<name>_retimed.<ext>` beside the target
-file; Save As (Ctrl+Shift+S) offers that name elsewhere. The title carries the
-target's name and a `*` while there are unsaved changes, and closing with
-changes asks Save / Discard / Cancel. Opening or dropping a **new target**
-over unsaved changes asks the same question first; a new reference never does,
-since the edits are the target's. Under `--print-output` each saved path is
-printed as soon as the file is written.
+file, and asks first when a file of that name is already there and this window
+did not write it (a result from an earlier session, say). Save As
+(Ctrl+Shift+S) writes wherever you choose, in the target's own format, and
+from then on Save writes there too; `--output` on the command line sets that
+file from the start, and Save replaces it without asking, as `--auto` does.
+The title carries the target's name and a `*` while there are unsaved
+changes, and closing with changes asks Save / Discard / Cancel, where Save
+writes where Save would. Opening or dropping a **new target** over unsaved
+changes asks the same question about the file being replaced, after checking
+that the new file can be opened at all; a new reference never asks, since the
+edits are the target's. Files opened in the window are read in the encodings
+the command line named (`--ref-encoding`, `--target-encoding`; UTF-8 if not).
+Under `--print-output` each saved path is printed as soon as the file is
+written.
 
 ### Keys and mouse
 
@@ -128,7 +151,7 @@ The window shows this table under Help → Help.
 | --- | --- |
 | Ctrl+O | Open the reference file |
 | Ctrl+Shift+O | Open the target file |
-| Ctrl+S | Save as `<name>_retimed.<ext>` |
+| Ctrl+S | Save to `<name>_retimed.<ext>`, or where Save As last wrote |
 | Ctrl+Shift+S | Save As... |
 | Ctrl+Z / Ctrl+Y | Undo / Redo |
 | Ctrl+Q | Quit |
@@ -158,7 +181,13 @@ relies on:
   (editor closed without saving, or a file had no timed lines). `1`: error,
   message on stderr — including no display to open the editor on.
 - `--auto` never opens a window and never overwrites an existing output
-  unless `--output` names it explicitly.
+  unless `--output` names it explicitly. The editor writes `--output` when
+  it is given, and asks before its Save replaces any other file it did not
+  write.
+- Both modes refuse a target that is not valid text in its encoding (exit
+  `1`), because saving it would change its text.
+- `--check-editor` exits `0` when the editor can start and `1`, with the
+  reason on stderr, when it cannot, without opening a window.
 
 ## Dependencies
 
@@ -199,7 +228,9 @@ sudo make install
 ```
 
 Installs to `/usr/lib/subsretimer/`, launcher to `/usr/bin/subsretimer`, the
-desktop entry to `/usr/share/applications/` and the icon to
+desktop entry to `/usr/share/applications/io.github.jhhr.subsretimer.desktop`
+(named after the application id, which is how Wayland desktops match it to the
+window) and the icon to
 `/usr/share/icons/hicolor/<size>x<size>/apps/` (refreshing the icon cache is
 left to the packager). `sudo make uninstall` removes them again.
 

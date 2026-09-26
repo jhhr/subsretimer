@@ -35,10 +35,16 @@ what it does not do and what no test on this machine could check.
   executable. `Cli.RunEditor` opens the window through `EditorHost`, which
   creates the `Gtk.Application`, and keeps the stdout contract: under
   `--print-output` each path is written and flushed as the window saves it
-  (since phase 11 `EditorHost.Run` takes an `onSaved` callback that `SaveTo`
+  (since phase 11 through an `onSaved` callback that the window's save
   calls), while the returned list still decides the exit code — 0 if anything
-  was saved, 2 if the window closed without saving. Nothing changed on the
-  subs2srs side; its launcher already handled both.
+  was saved, 2 if the window closed without saving. Since phase 12
+  `EditorHost.Run` takes an `EditorRequest`: the two loaded files, the
+  `--output` path Save writes the target to, the two encodings for files
+  opened from the window, and that callback. `EditorHost.Probe()` tells a
+  missing display from a GTK that does not load, and an exception while the
+  window is built inside GTK's `activate` is carried out of the native
+  callback and rethrown by `Run`. Nothing changed on the subs2srs side; its
+  launcher already handled all of it.
 - The window is a view over `RetimerEngine` and never computes timing itself.
   Core already provides sorted lines, `ShiftFrom`, `ShiftToMatch`,
   `ClosestIndex`, `BestOverlap`, `LargeGapFlags`, `MismatchFlags`,
@@ -205,6 +211,10 @@ leaves the tree building, the tests green and committed on `ui-editor`.
     saved path as the editor writes it`, `gtk: list the timeline's bindings in
     the key table`, `build: keep the version in one Directory.Build.props`,
     `docs: record the phase 11 fixes`).
+12. **Fixes from two code reviews of the branch.** Done 2026-09-26; each
+    finding was checked with a test that fails on the code before the fix, and
+    the ones that held were fixed. The log in `docs/ui-work-orders.md` lists
+    them and the commits.
 
 Phases 1 to 5 were the useful product and could be built and smoke-tested
 headless; phase 6 came before phase 7 so the chart landed with tests.
@@ -293,11 +303,18 @@ checklist below:
   (`ChartClick`), and for a file dropped on a pane, where the test does call
   the handler, `DropFile`, with the `GObject.Value` a drop would carry — but a
   real drag from a file manager is still unproven.
-- GTK starting from the Windows bundle. `dist/windows/smoke.ps1` checks the
-  bundle's layout, `--version` and `--auto`, and deliberately does not look
-  for a window: a console process's `MainWindowHandle` is its console, so that
-  check would pass with no GTK at all. Neither PowerShell script has ever
-  run — this machine has no `pwsh`.
+- The editor window on Windows. `dist/windows/smoke.ps1` checks the bundle's
+  layout, `--version`, `--check-editor` (GTK loads from the bundle, a display
+  opens, `gtk_init()` reads the bundled schemas) and `--auto`, and
+  deliberately does not look for a window: a console process's
+  `MainWindowHandle` is its console, so that check would pass with no GTK at
+  all. Neither PowerShell script has run on Windows. In phase 12 `smoke.ps1`
+  was parsed by PowerShell 7 and its steps after the layout check ran on
+  Linux against the Linux build; `bundle-gtk.ps1` has never run.
+- The Wayland side of the desktop entry. On X11 the window's `WM_CLASS` is
+  `subsretimer` (measured with `xprop` under Xvfb), which `StartupWMClass`
+  names; on Wayland GTK 4 sends the application id as the app_id, which the
+  entry's file name now matches. No compositor was available to watch it.
 
 **Chosen and left as they are:**
 
@@ -314,9 +331,22 @@ checklist below:
 - Help's `KeyTable` lists the lists' keys and buttons and, since phase 11, the
   timeline's clicks and its zoom buttons. The README's "Keys and mouse" table
   is the same 18 entries; keep the two in step if either gains a binding.
-- Replacing the target asks about unsaved changes (phase 11). A drop cannot
-  wait for the answer — `DropFile` accepts the drop at once and loads the file
-  only after the prompt — so a refused drop still looks accepted to GTK.
+- Replacing the target asks about unsaved changes (phase 11). The new file is
+  read first, so one that cannot be used refuses the drop with an error, and
+  while any prompt is up a target drop is refused outright (phase 12). A drop
+  that is answered Cancel cannot be taken back, though: the drop signal cannot
+  wait for the answer, so `DropFile` accepts it at once and loads the file
+  only after the prompt, and GTK sees it as accepted.
+- A Time Shift with a negative delta can move target rows before the rows
+  above them, and the target list is never re-sorted (undo, the row numbers
+  and Auto Align's segments are all by index). Since phase 12 every "closest
+  line" lookup and the gray rows are right in any order. The orange rows are
+  still measured against the row above in the list, which is what the list
+  shows.
+- A target that is not valid text in its encoding is refused, in both modes
+  and from the window, instead of being saved with U+FFFD where its
+  characters were. The reference is only read for its timings and loads
+  either way.
 
 ### Manual checklist
 
@@ -340,19 +370,24 @@ machine with no MSYS2 and no GTK of its own.
    and follows the selection.
 6. Drag a subtitle file from the file manager onto each pane: it loads. Drag
    something that is not a subtitle file: the error dialog appears and nothing
-   loads.
+   loads, and over unsaved changes nothing is asked first.
 7. Auto Align on a pair with a real cut, then Ctrl+Z back to the start: the
    status line reports the segments and the title's `*` disappears at the
    loaded state.
-8. Save (Ctrl+S), Save As elsewhere, then close with unsaved changes and try
-   Cancel, Discard and Save in turn; shift again and drop another target on
-   the right pane for the same three answers. With `--print-output`, each
-   saved path appears on stdout as the file is written, once, and nothing else
-   does.
+8. Save (Ctrl+S) with a `<name>_retimed.<ext>` already beside the target: the
+   Replace prompt appears. Save As elsewhere, shift, Save: the Save As file
+   changes and the default name does not. Then close with unsaved changes and
+   try Cancel, Discard and Save in turn; shift again and drop another target
+   on the right pane for the same three answers (the question names the new
+   file). With `--print-output`, each saved path appears on stdout as the file
+   is written, once, and nothing else does.
 9. Linux: `sudo make install`, then start Subs Re-Timer from the desktop menu
-   and check its icon. Windows: the bundled `subsretimer.exe` opens the window
-   at all (the check `smoke.ps1` cannot make), shows the red R icon, and still
-   answers `--version` and `--auto` in the console beside it.
+   and check its icon and that the running window groups with the launcher,
+   on X11 and on Wayland. Windows: the bundled `subsretimer.exe` opens the
+   window at all (`smoke.ps1` stops just short of that), shows the red R
+   icon, and still answers `--version` and `--auto` in the console beside it.
+10. The timeline with Japanese dialogue: the bars show the text, not boxes.
+    Tab to the `+` button and press Space: the scale changes.
 
 ## Open defaults
 

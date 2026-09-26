@@ -692,3 +692,64 @@ exit 0 with the path as the last stdout line; editor mode without a display exit
 the message; subs2srs's 13 launcher tests pass against this build (`SUBSRETIMER_EXE`).
 Not run anywhere yet: the two PowerShell scripts, the release workflow, and the manual
 checklist in `docs/ui-plan.md`.
+
+### Phase 12 — 2026-09-26 — fixes from two code reviews of the branch
+
+Two reviews of `02faedc..ui-editor` gave 30 findings, 23 of them distinct.
+Each was checked against the code, most with a test written to fail on the
+code before the fix (the fix was then broken on purpose to see it fail, and
+put back). All 23 held in substance. Details that did not: a corrupt `.ass`
+does not make the loader throw (it loads with no lines), a failure in
+`activate` did not return 2 (GirCore ended the process with 1), and a hanging
+startup notification was not reproduced.
+
+- Saving: `-o` was ignored by the editor; Save in the prompts went back to the
+  default name after a Save As; Save replaced an existing
+  `<name>_retimed.<ext>` without a word; Save As (and `--output`) wrote ASS
+  text under a `.srt` name. Now `EditorRequest.OutputPath`, a remembered save
+  path, a Replace prompt (`OverwriteChoice` seam) for a default name this
+  window did not write, and `RetimerIO.OutputFormatProblem`, which refuses
+  only the other format's extension.
+- Opening: the unsaved-changes question came before the new file was even
+  checked, a `.mkv` was read whole first, files opened in the window were
+  always read as UTF-8 (the command line's encodings were dropped), and a
+  target read in the wrong encoding was saved with U+FFFD in its text. Now the
+  file is read (in the side's encoding, extension first) before anything is
+  asked, and `SubtitleFile.HasInvalidBytes` makes both modes refuse such a
+  target. The replace prompt names the file it opens; a target dropped while
+  a prompt is up is refused; a close asked for meanwhile runs afterwards.
+- Host: a missing libgtk-4 was reported as "cannot open a display"
+  (reproduced by bind-mounting /dev/null over the library); `EditorProbe`
+  tells the two apart. An exception while the window was built inside
+  `activate` was handled by GirCore's own handler, which prints a stack trace
+  and ends the process (measured) — the exit code was 1 by accident; `Run`
+  now catches it there and rethrows. `--check-editor` asks the question
+  without a window and the Windows smoke test runs it.
+- Desktop entry: named `io.github.jhhr.subsretimer.desktop` after the
+  application id (the Wayland app_id) with `StartupWMClass=subsretimer`, the
+  X11 `WM_CLASS` measured with `xprop`.
+- Lists: `OnUnbind` removed whichever cell was registered at its position.
+  Instrumented, GTK unbinds a cell at a position another cell already holds
+  (53 times in 300 rounds of scrolls and reloads), and 38 of those rounds
+  ended with a row on screen that `Refresh` could not reach; none with the
+  ownership check. The store is filled with one `Splice`.
+- `ClosestIndex` binary-searched a target that a negative Time Shift can
+  leave out of order; it now scans an unsorted list, and `MismatchFlags`
+  searches a sorted view.
+- Timeline: bar text went through Cairo's toy API, which drew Japanese as
+  empty boxes (rendered side by side with Pango to check); now Pango. The zoom
+  buttons ignored the keyboard; `clicked` now does the small step (GTK emits
+  it about 250 ms after an activation).
+- Efficiency: one repaint per Auto Align, none but the title per save.
+  `ProductInfo.Version` replaces the two copies of the version parsing.
+- Tests and build: the no-display test opened the real window where GDK has
+  a display anyway (reproduced under `GDK_BACKEND=broadway`); it is Linux-only,
+  clears the backend and kills a child that outlives 60 s. `UiTestScope`'s
+  leak check replaced the test's own failure; it now reports both and
+  destroys the stray window. CI now runs on `*.props`, `dist/` and the
+  Makefile. `release.yml` expanded the tag name into PowerShell (a tag
+  `v1$(...)` ran the command, checked with pwsh); it now comes through the
+  environment and must look like a version.
+
+Suites: 121 unit tests; 55 UI tests under Xvfb. subs2srs's 13 launcher tests
+pass against this build (`SUBSRETIMER_EXE`).
