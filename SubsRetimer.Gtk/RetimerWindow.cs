@@ -5,7 +5,6 @@
 //  Port of Subs Re-Timer 1.0's main form to GTK 4.
 
 using System.Globalization;
-using System.Reflection;
 using System.Text;
 using SubsRetimer.Core;
 
@@ -27,7 +26,7 @@ namespace SubsRetimer.Editor
 
     /// <summary>
     /// Name the window icon is looked up under in the icon theme; also the
-    /// <c>Icon=</c> of <c>dist/subsretimer.desktop</c>. <c>make install</c> and
+    /// <c>Icon=</c> of <c>dist/io.github.jhhr.subsretimer.desktop</c>. <c>make install</c> and
     /// the Windows bundle put the PNGs from <c>assets/</c> under
     /// <c>share/icons/hicolor/&lt;size&gt;x&lt;size&gt;/apps</c>. A name the theme
     /// does not know leaves the window without an icon, never an error, so
@@ -76,11 +75,33 @@ namespace SubsRetimer.Editor
     /// <summary>What the status line says when <see cref="SubsRetimer.Core.AutoAlign"/> found no segments.</summary>
     internal const string NoAlignment = "Auto Align: no alignment found";
 
-    /// <summary>True while a file is being loaded, when the store has yet to catch up with the engine.</summary>
-    private bool _loading;
+    /// <summary>
+    /// Above zero while the engine's changes are not to be repainted one by
+    /// one: while a file loads (the store has yet to catch up with the
+    /// engine), while Auto Align applies its segments and while a save runs.
+    /// Whoever raises it repaints once when done.
+    /// </summary>
+    private int _holdRefresh;
 
-    /// <summary>True while the unsaved-changes prompt is up: a second close request must not open a second one.</summary>
-    private bool _prompting;
+    /// <summary>
+    /// How many flows that may put a prompt up are under way: a save that
+    /// asks before replacing a file, or a new target that asks about unsaved
+    /// changes. While one is, the target is spoken for.
+    /// </summary>
+    private int _busy;
+
+    /// <summary>True while the close prompt is up: a second close request must not open a second one.</summary>
+    private bool _closing;
+
+    /// <summary>A close was asked for while another prompt was up; it runs once that flow is over.</summary>
+    private bool _closeDeferred;
+
+    /// <summary>
+    /// Where Save writes the target, as a full path; null for the default
+    /// <c>name_retimed.ext</c>. Set by <c>--output</c> and by Save As, reset
+    /// when another target is loaded.
+    /// </summary>
+    private string? _outputPath;
 
     public RetimerWindow(Gtk.Application application)
     {
@@ -146,9 +167,10 @@ namespace SubsRetimer.Editor
       if (!CanAutoAlign) return Array.Empty<AlignmentSegment>();
 
       var segments = Core.AutoAlign.Compute(_engine.ReferenceLines, _engine.TargetLines);
-      // Every shift raises Changed, which repaints the lists and the strip:
-      // nothing extra is refreshed here.
-      Core.AutoAlign.Apply(_engine, segments);
+      // One shift per segment, and each raises Changed: repaint once, after
+      // the last, instead of once per segment.
+      WithoutRefresh(() => Core.AutoAlign.Apply(_engine, segments));
+      RefreshAll();
 
       SetStatus(segments.Count == 0
         ? NoAlignment
@@ -175,18 +197,69 @@ namespace SubsRetimer.Editor
     /// <summary>Redo the last undone shift. False when there was nothing to redo.</summary>
     internal bool Redo() => _engine.Redo();
 
-    /// <summary>Save the target to <c>name_retimed.ext</c>. False when there is nothing to save or the save failed.</summary>
-    internal bool Save() => SaveTo(null);
+    /// <summary>
+    /// The full path Save writes the target to: the <c>--output</c> path or
+    /// the one Save As last wrote, else <c>name_retimed.ext</c> beside the
+    /// target. Null while there is no target.
+    /// </summary>
+    internal string? SavePath =>
+      _engine.Target == null ? null : _outputPath ?? Path.GetFullPath(RetimerIO.DefaultOutputPath(_engine.Target.Path));
 
-    /// <summary>Save the target to <paramref name="path"/>: what the Save As dialog calls once a name is chosen.</summary>
-    internal bool SaveAs(string path) => SaveTo(path);
+    /// <summary>
+    /// Save the target to <see cref="SavePath"/>. The default name is not one
+    /// the user chose, so replacing a file there that this window did not
+    /// write asks first, as <c>--auto</c> refuses to. False when there is
+    /// nothing to save, the user said no, or the save failed.
+    /// </summary>
+    internal Task<bool> SaveAsync() => WhileBusy(SaveCoreAsync);
+
+    /// <summary>
+    /// Save the target to <paramref name="path"/>: what the Save As dialog
+    /// calls once a name is chosen (that dialog has asked about replacing a
+    /// file already). From then on Save writes there too.
+    /// </summary>
+    internal bool SaveAs(string path)
+    {
+      string full = Path.GetFullPath(path);
+      if (!WriteTarget(full)) return false;
+      _outputPath = full;
+      return true;
+    }
 
     /// <summary>
     /// Answers the unsaved-changes prompt instead of <c>Gtk.AlertDialog</c> when
-    /// set: the index of the button to press. Lets a test drive the close path
-    /// with no dialog on screen.
+    /// set: the index of the button to press. Lets a test drive the close and
+    /// replace paths with no dialog on screen.
     /// </summary>
     internal Func<Task<int>>? CloseChoice { get; set; }
+
+    /// <summary>
+    /// Answers "replace the existing file?" instead of <c>Gtk.AlertDialog</c>
+    /// when set, given the full path: true replaces it.
+    /// </summary>
+    internal Func<string, Task<bool>>? OverwriteChoice { get; set; }
+
+    /// <summary>
+    /// Receives each error (message, detail) instead of an error dialog when
+    /// set, so that a test sees the error and no stray window is left open.
+    /// </summary>
+    internal Action<string, string>? ErrorShown { get; set; }
+
+    /// <summary>The question the last prompt asked, whoever answered it. For the tests.</summary>
+    internal string? LastPrompt { get; private set; }
+
+    /// <summary>
+    /// Encodings for files opened from the window, per side: what
+    /// <c>--ref-encoding</c> and <c>--target-encoding</c> said. Null is
+    /// UTF-8; a byte-order mark always wins.
+    /// </summary>
+    internal Encoding? ReferenceEncoding { get; set; }
+
+    /// <inheritdoc cref="ReferenceEncoding"/>
+    internal Encoding? TargetEncoding { get; set; }
+
+    /// <summary>How often the whole window was repainted from the engine. Loading, a shift, an undo and Auto Align count one each; a save counts none.</summary>
+    internal int RefreshCount { get; private set; }
 
     /// <summary>Close the window as the title bar's close button would, prompt and all.</summary>
     internal void RequestClose()
@@ -201,21 +274,22 @@ namespace SubsRetimer.Editor
     internal void LoadTarget(string path, Encoding? encoding = null) =>
       SetFile(Side.Target, RetimerIO.Load(path, encoding));
 
-    /// <summary>Show an already loaded file. Used by <see cref="EditorHost"/>, which loads before GTK starts.</summary>
-    internal void SetFile(Side side, SubtitleFile file)
+    /// <summary>
+    /// Show an already loaded file. Used by <see cref="EditorHost"/>, which
+    /// loads before GTK starts, with <paramref name="outputPath"/> from
+    /// <c>--output</c> for the target; any other target is saved under the
+    /// default name until Save As names another.
+    /// </summary>
+    internal void SetFile(Side side, SubtitleFile file, string? outputPath = null)
     {
       // The engine raises Changed as soon as it has the file, but this list's
       // store still holds the old rows: hold the repaint until it is rebuilt.
-      _loading = true;
-      try
+      WithoutRefresh(() =>
       {
         if (side == Side.Reference) _engine.LoadReference(file);
         else _engine.LoadTarget(file);
-      }
-      finally
-      {
-        _loading = false;
-      }
+      });
+      if (side == Side.Target) _outputPath = outputPath == null ? null : Path.GetFullPath(outputPath);
 
       // A new file makes the last alignment report meaningless.
       SetStatus("");
@@ -286,7 +360,7 @@ namespace SubsRetimer.Editor
     internal const string KeyTable =
       "Ctrl+O                Open the reference file\n" +
       "Ctrl+Shift+O          Open the target file\n" +
-      "Ctrl+S                Save as <name>_retimed.<ext>\n" +
+      "Ctrl+S                Save to <name>_retimed.<ext>, or where Save As last wrote\n" +
       "Ctrl+Shift+S          Save As...\n" +
       "Ctrl+Z / Ctrl+Y       Undo / Redo\n" +
       "Ctrl+Q                Quit\n" +
@@ -315,16 +389,8 @@ namespace SubsRetimer.Editor
         "Licensed under the GNU General Public License version 3 or later (GPL-3.0-or-later).",
         WindowTitle, Version);
 
-    /// <summary>
-    /// The editor's version. <c>Cli.Version</c> lives in the executable,
-    /// which this library cannot reference, so the same attribute is read
-    /// from this assembly; both carry the repository's version.
-    /// </summary>
-    private static string Version =>
-      typeof(RetimerWindow).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
-        ?.InformationalVersion.Split('+')[0]
-      ?? typeof(RetimerWindow).Assembly.GetName().Version?.ToString(3)
-      ?? "0.0.0";
+    /// <summary>The editor's version: the one <c>--version</c> prints.</summary>
+    private static string Version => ProductInfo.Version;
 
     /// <summary>
     /// The window's actions and the accelerators that reach them. Each one
@@ -334,7 +400,7 @@ namespace SubsRetimer.Editor
     {
       Register(ActionOpenReference, () => OpenFile(Side.Reference), "<Control>o");
       Register(ActionOpenTarget, () => OpenFile(Side.Target), "<Control><Shift>o");
-      Register(ActionSave, () => Save(), "<Control>s");
+      Register(ActionSave, () => _ = SaveAsync(), "<Control>s");
       Register(ActionSaveAs, SaveAsDialog, "<Control><Shift>s");
       Register(ActionQuit, RequestClose, "<Control>q");
       Register(ActionUndo, () => Undo(), "<Control>z");
@@ -528,15 +594,25 @@ namespace SubsRetimer.Editor
       string? path = PathFromDrop(value);
       if (path == null) return false;   // nothing usable was dropped
 
-      // Replacing a dirty target asks first, and the drop signal cannot wait
-      // for the answer: the drop is taken either way and the file is loaded
-      // once the user has chosen.
-      if (side == Side.Target && _engine.IsDirty)
+      // While a prompt is up the target is spoken for: a new one now would be
+      // lost to the prompt's own answer. Refused, the drop shows as refused.
+      if (side == Side.Target && PromptPending) return false;
+
+      // Read before anything is asked: a file that cannot be used refuses the
+      // drop with an error, not after a question about unsaved changes.
+      var file = ReadFile(side, path);
+      if (file == null) return false;
+      if (side == Side.Reference)
       {
-        _ = OpenPathAsync(side, path);
+        SetFile(side, file);
         return true;
       }
-      return LoadPath(side, path);
+
+      // Replacing a dirty target asks first, and the drop signal cannot wait
+      // for the answer: the drop is taken and the file is shown once the user
+      // has chosen (at once when there is nothing to lose).
+      _ = ReplaceTargetAsync(file);
+      return true;
     }
 
     /// <summary>
@@ -791,7 +867,7 @@ namespace SubsRetimer.Editor
       _autoAlign.OnClicked += (_, _) => AutoAlign();
       _undo.OnClicked += (_, _) => Undo();
       _redo.OnClicked += (_, _) => Redo();
-      _save.OnClicked += (_, _) => Save();
+      _save.OnClicked += (_, _) => _ = SaveAsync();
       _saveAs.OnClicked += (_, _) => SaveAsDialog();
 
       // A wider gap groups the buttons: edit, history, save.
@@ -833,8 +909,22 @@ namespace SubsRetimer.Editor
 
     private void OnEngineChanged()
     {
-      if (_loading) return;   // SetFile repaints once the store is rebuilt
+      if (_holdRefresh > 0) return;   // whoever holds it repaints when done
       RefreshAll();
+    }
+
+    /// <summary>Run <paramref name="action"/> without repainting on each change it makes; the caller repaints after.</summary>
+    private void WithoutRefresh(Action action)
+    {
+      _holdRefresh++;
+      try
+      {
+        action();
+      }
+      finally
+      {
+        _holdRefresh--;
+      }
     }
 
     private void OnSelectionChanged()
@@ -851,6 +941,7 @@ namespace SubsRetimer.Editor
     /// </summary>
     private void RefreshAll()
     {
+      RefreshCount++;
       var reference = _engine.ReferenceLines;
       var target = _engine.TargetLines;
 
@@ -1013,81 +1104,150 @@ namespace SubsRetimer.Editor
     /// asking about unsaved changes first when it would throw them away.
     /// Every way into the window goes through here except the command line,
     /// which loads before the window exists and so has nothing to lose.
+    /// The file is read first: one that cannot be used is reported and never
+    /// gets as far as the question.
     /// </summary>
     /// <returns>True when the file was loaded.</returns>
     internal async Task<bool> OpenPathAsync(Side side, string path)
     {
-      // Only the target carries the edits; a new reference costs nothing.
-      if (side == Side.Target && !await ConfirmReplaceTarget()) return false;
-      return LoadPath(side, path);
+      if (side == Side.Target && PromptPending) return false;   // one prompt at a time
+
+      var file = ReadFile(side, path);
+      if (file == null) return false;
+      if (side == Side.Reference)
+      {
+        SetFile(side, file);   // only the target carries the edits; a new reference costs nothing
+        return true;
+      }
+      return await ReplaceTargetAsync(file);
     }
 
     /// <summary>
-    /// Load <paramref name="path"/> now, with no questions asked. False, and
-    /// a dialog, when it could not be read.
+    /// Read <paramref name="path"/> for <paramref name="side"/> in that side's
+    /// encoding. Null, and an error, when it is not a subtitle file, cannot
+    /// be read, or is a target that did not decode cleanly.
     /// </summary>
-    private bool LoadPath(Side side, string path)
+    private SubtitleFile? ReadFile(Side side, string path)
     {
       try
       {
-        SetFile(side, RetimerIO.Load(path));
-        return true;
+        // By name first: a dropped video must not be read whole to find out.
+        if (!RetimerIO.IsSupported(path))
+          throw new NotSupportedException(Path.GetFileName(path) + " is not an .ass, .ssa or .srt file.");
+
+        var file = RetimerIO.Load(path, side == Side.Reference ? ReferenceEncoding : TargetEncoding);
+        // A target is written back: characters read as U+FFFD would be saved
+        // as U+FFFD. The reference is only looked at, so it may be imperfect.
+        if (side == Side.Target && file.HasInvalidBytes)
+          throw new InvalidDataException(string.Format(
+            CultureInfo.InvariantCulture,
+            "{0} is not valid {1} text, and saving it would change the characters that could not be read. " +
+            "Start subsretimer with --target-encoding and the file's encoding to open it.",
+            file.FileName, file.Encoding.WebName));
+        return file;
       }
       catch (Exception ex)
       {
         ShowError("The subtitle file could not be opened.", ex.Message);
-        return false;
+        return null;
       }
     }
 
     /// <summary>
-    /// Whether the target may be replaced: it has no unsaved changes, or the
-    /// user answered the same Save / Discard / Cancel question closing asks.
-    /// Save that failed, Cancel and a dismissed prompt all keep the target.
+    /// Show <paramref name="file"/> as the target. With unsaved changes this
+    /// asks the same Save / Discard / Cancel question closing asks; Save that
+    /// failed, Cancel and a dismissed prompt all keep the current target.
     /// </summary>
-    private async Task<bool> ConfirmReplaceTarget()
+    /// <returns>True when the file was loaded.</returns>
+    private Task<bool> ReplaceTargetAsync(SubtitleFile file) => WhileBusy(async () =>
     {
-      if (!_engine.IsDirty) return true;
-      if (_prompting) return false;   // one prompt at a time
+      if (!_engine.IsDirty)
+      {
+        SetFile(Side.Target, file);
+        return true;
+      }
 
-      _prompting = true;
-      try
+      string current = _engine.Target?.FileName ?? "the target";
+      int choice = await AskAboutUnsavedChanges(
+        string.Format(CultureInfo.InvariantCulture, "Save the changes to {0} before opening {1}?", current, file.FileName),
+        "The re-timed lines have not been written to a file. Opening another target replaces them.");
+      // A failed or refused save keeps the changes: they are still only in here.
+      if (choice == ChoiceDiscard || (choice == ChoiceSave && await SaveCoreAsync()))
       {
-        int choice = await AskAboutUnsavedChanges();
-        if (choice == ChoiceDiscard) return true;
-        // A failed save keeps the changes: they are still only in here.
-        return choice == ChoiceSave && Save();
+        SetFile(Side.Target, file);
+        return true;
       }
-      finally
-      {
-        _prompting = false;
-      }
-    }
+      return false;
+    });
 
     // ── Saving ───────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Write the target to <paramref name="path"/>, or to the default
-    /// <c>name_retimed.ext</c> when it is null, and remember the full path.
-    /// Everything the write can throw becomes a dialog; the answer says
-    /// whether the file is on disk, which the close prompt needs.
+    /// Run a flow that may put a prompt up. Until it is over the target is
+    /// spoken for (<see cref="PromptPending"/>), and a close asked for in the
+    /// meantime waits for it instead of being lost.
     /// </summary>
-    private bool SaveTo(string? path)
+    private async Task<bool> WhileBusy(Func<Task<bool>> flow)
+    {
+      _busy++;
+      try
+      {
+        return await flow();
+      }
+      finally
+      {
+        _busy--;
+        if (_busy == 0 && _closeDeferred)
+        {
+          _closeDeferred = false;
+          RequestClose();
+        }
+      }
+    }
+
+    /// <summary>True while a prompt is up or a flow that asks one is under way.</summary>
+    private bool PromptPending => _busy > 0 || _closing;
+
+    /// <summary>
+    /// Save to <see cref="SavePath"/>, asking before replacing a file whose
+    /// name the user did not choose and this window did not write. For use
+    /// inside a flow that is busy already; <see cref="SaveAsync"/> otherwise.
+    /// </summary>
+    private async Task<bool> SaveCoreAsync()
+    {
+      string? path = SavePath;
+      if (path == null) return false;
+
+      bool chosen = _outputPath != null;   // --output or Save As named it
+      if (!chosen && File.Exists(path) && !_savedPaths.Contains(path) && !await ConfirmOverwrite(path))
+        return false;
+      return WriteTarget(path);
+    }
+
+    /// <summary>
+    /// Write the target to the full path <paramref name="path"/> and remember
+    /// it. Everything the write can throw becomes an error; the answer says
+    /// whether the file is on disk, which the prompts need.
+    /// </summary>
+    private bool WriteTarget(string path)
     {
       if (_engine.Target == null) return false;
       try
       {
+        // A save changes nothing but the star in the title.
+        WithoutRefresh(() => _engine.Save(path));
+        RefreshTitle();
+
         // Full paths, because they are what --print-output hands to the
         // program that launched the editor.
-        string saved = Path.GetFullPath(_engine.Save(path));
-        if (!_savedPaths.Contains(saved))
+        if (!_savedPaths.Contains(path))
         {
-          _savedPaths.Add(saved);
+          _savedPaths.Add(path);
           // Report it now, not when the window closes: the program that
           // launched the editor can act on the file while it is still open.
           // A reporter that fails (a closed stdout) must not turn a good save
           // into an error dialog; the file is on disk either way.
-          try { PathSaved?.Invoke(saved); }
+          try { PathSaved?.Invoke(path); }
           catch (Exception) { /* the save stands */ }
         }
         return true;
@@ -1099,22 +1259,67 @@ namespace SubsRetimer.Editor
       }
     }
 
+    /// <summary>Whether to replace the existing file at <paramref name="path"/>. Anything unanswered is no.</summary>
+    private async Task<bool> ConfirmOverwrite(string path)
+    {
+      string message = string.Format(CultureInfo.InvariantCulture, "Replace {0}?", Path.GetFileName(path));
+      LastPrompt = message;
+      if (OverwriteChoice != null) return await OverwriteChoice(path);
+
+      var dialog = new Gtk.AlertDialog();
+      dialog.SetMessage(message);
+      dialog.SetDetail(string.Format(
+        CultureInfo.InvariantCulture,
+        "A file with this name already exists in {0}, and this window did not write it. Saving replaces its contents.",
+        Path.GetDirectoryName(path)));
+      dialog.SetButtons(new[] { "Replace", "Cancel" });
+      dialog.SetDefaultButton(1);
+      dialog.SetCancelButton(1);
+      try
+      {
+        return await dialog.ChooseAsync(this) == 0;
+      }
+      catch (GLib.GException)
+      {
+        return false;   // dismissed, the same as Cancel
+      }
+    }
+
     /// <summary>
     /// Button handler: async void because a GTK callback has no caller to
-    /// await it. The default output name is offered next to the target file.
+    /// await it. Offers the name Save would write, which is the default
+    /// output name next to the target until Save As or --output named another.
     /// </summary>
     private async void SaveAsDialog()
     {
       try
       {
-        if (_engine.Target == null) return;
-        string suggested = Path.GetFullPath(RetimerIO.DefaultOutputPath(_engine.Target.Path));
+        string? suggested = SavePath;
+        if (suggested == null || _engine.Target == null) return;
 
         var dialog = Gtk.FileDialog.New();
         dialog.SetTitle("Save the retimed subtitles");
         dialog.SetInitialName(Path.GetFileName(suggested));
         string? folder = Path.GetDirectoryName(suggested);
         if (!string.IsNullOrEmpty(folder)) dialog.SetInitialFolder(Gio.FileHelper.NewForPath(folder));
+
+        // The file is written in the target's own format, so offer its names.
+        var filter = Gtk.FileFilter.New();
+        if (_engine.Target.Format == SubtitleFormat.Ass)
+        {
+          filter.SetName("ASS subtitles (.ass, .ssa)");
+          filter.AddSuffix("ass");
+          filter.AddSuffix("ssa");
+        }
+        else
+        {
+          filter.SetName("SRT subtitles (.srt)");
+          filter.AddSuffix("srt");
+        }
+        var filters = Gio.ListStore.New(Gtk.FileFilter.GetGType());
+        filters.Append(filter);
+        dialog.SetFilters(filters);
+        dialog.SetDefaultFilter(filter);
 
         Gio.File? chosen;
         try
@@ -1128,7 +1333,7 @@ namespace SubsRetimer.Editor
 
         string? path = chosen?.GetPath();
         if (path == null) return;
-        SaveTo(path);
+        SaveAs(path);
       }
       catch (Exception ex)
       {
@@ -1144,17 +1349,26 @@ namespace SubsRetimer.Editor
     internal const int ChoiceDiscard = 1;
     internal const int ChoiceCancel = 2;
 
+    /// <summary>What the close prompt asks.</summary>
+    internal const string CloseQuestion = "Save the changes before closing?";
+
     /// <summary>
     /// The close-request handler: true keeps the window open. With unsaved
     /// changes it puts the prompt up and answers true; the prompt closes the
-    /// window itself once the user has chosen.
+    /// window itself once the user has chosen. While another prompt is up the
+    /// close waits for it, and runs once that is answered.
     /// </summary>
     private bool VetoClose()
     {
-      if (_prompting) return true;   // one prompt at a time
+      if (_closing) return true;   // one close prompt at a time
+      if (_busy > 0)
+      {
+        _closeDeferred = true;
+        return true;
+      }
       if (!_engine.IsDirty) return false;
 
-      _prompting = true;
+      _closing = true;
       _ = PromptThenClose();
       return true;
     }
@@ -1163,27 +1377,28 @@ namespace SubsRetimer.Editor
     {
       try
       {
-        int choice = await AskAboutUnsavedChanges();
+        int choice = await AskAboutUnsavedChanges(CloseQuestion, "The re-timed lines have not been written to a file.");
         // Cancel, or anything else the dialog might answer, keeps the window.
         if (choice != ChoiceSave && choice != ChoiceDiscard) return;
-        // A failed save keeps it too: the changes are still only in here.
-        if (choice == ChoiceSave && !Save()) return;
+        // A failed or refused save keeps it too: the changes are still only in here.
+        if (choice == ChoiceSave && !await SaveCoreAsync()) return;
         Destroy();
       }
       finally
       {
-        _prompting = false;
+        _closing = false;
       }
     }
 
     /// <summary>Which of Save / Discard / Cancel the user chose. Anything unanswered counts as Cancel.</summary>
-    private async Task<int> AskAboutUnsavedChanges()
+    private async Task<int> AskAboutUnsavedChanges(string message, string detail)
     {
+      LastPrompt = message;
       if (CloseChoice != null) return await CloseChoice();
 
       var dialog = new Gtk.AlertDialog();
-      dialog.SetMessage("Save the changes before closing?");
-      dialog.SetDetail("The re-timed lines have not been written to a file.");
+      dialog.SetMessage(message);
+      dialog.SetDetail(detail);
       dialog.SetButtons(new[] { "Save", "Discard", "Cancel" });
       dialog.SetDefaultButton(ChoiceSave);
       dialog.SetCancelButton(ChoiceCancel);
@@ -1197,7 +1412,11 @@ namespace SubsRetimer.Editor
       }
     }
 
-    private void ShowError(string message, string detail) => ShowMessage(message, detail);
+    private void ShowError(string message, string detail)
+    {
+      if (ErrorShown != null) ErrorShown(message, detail);
+      else ShowMessage(message, detail);
+    }
 
     /// <summary>A plain one-button dialog: an error, the key table or the About text.</summary>
     private void ShowMessage(string message, string detail)

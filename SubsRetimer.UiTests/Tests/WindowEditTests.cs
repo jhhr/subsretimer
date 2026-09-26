@@ -115,7 +115,7 @@ namespace SubsRetimer.UiTests.Tests
       await ShiftAsync(scope, window);
 
       bool saved = false;
-      await scope.RunAsync(window, () => saved = window.Save());
+      await scope.RunAsync(window, async () => saved = await window.SaveAsync());
       Assert.True(saved);
 
       string expected = Path.GetFullPath(RetimerIO.DefaultOutputPath(files.TargetPath));
@@ -140,7 +140,7 @@ namespace SubsRetimer.UiTests.Tests
     }
 
     [GtkFact]
-    public async Task SaveAs_WritesTheChosenPath_AndAppendsItToTheSavedPaths()
+    public async Task SaveAs_WritesTheChosenPath_AndSaveKeepsWritingThere()
     {
       using var scope = new UiTestScope(_gtk);
       var files = Fixture(scope);
@@ -163,11 +163,25 @@ namespace SubsRetimer.UiTests.Tests
       Assert.False(state.IsDirty);
       Assert.Equal(state.Reference, RetimerIO.Load(chosen).Lines[CutRow].Start);
 
-      // A second save adds a second path, which is what --print-output prints.
-      await scope.RunAsync(window, () => window.Save());
-      Assert.Equal(
-        new[] { Path.GetFullPath(chosen), Path.GetFullPath(RetimerIO.DefaultOutputPath(files.TargetPath)) },
-        scope.Read(() => window.SavedPaths.ToArray()));
+      // Save after Save As writes the chosen file again, with the newer
+      // timings, and not the default name: the file the user picked stays
+      // the one that is current. It is not a new path to report.
+      await scope.RunAsync(window, () => window.Undo());
+      bool again = false;
+      await scope.RunAsync(window, async () => again = await window.SaveAsync());
+      var after = scope.Read(() => new
+      {
+        Paths = window.SavedPaths.ToArray(),
+        window.SavePath,
+        window.IsDirty,
+        Undone = window.Engine.TargetLines[CutRow].Start,
+      });
+      Assert.True(again);
+      Assert.Equal(Path.GetFullPath(chosen), after.SavePath);
+      Assert.Equal(new[] { Path.GetFullPath(chosen) }, after.Paths);
+      Assert.False(after.IsDirty);
+      Assert.Equal(after.Undone, RetimerIO.Load(chosen).Lines[CutRow].Start);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(files.TargetPath)));
     }
 
     [GtkFact]

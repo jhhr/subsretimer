@@ -1,6 +1,7 @@
 //  Copyright (C) 2026 jhhr and contributors
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Text;
 using SubsRetimer.Core;
 using SubsRetimer.Editor;
 using SubsRetimer.UiTests.Harness;
@@ -200,6 +201,211 @@ namespace SubsRetimer.UiTests.Tests
       Assert.Equal(20, after.Count);
       Assert.Equal(shifted.Cut, after.Cut);
       Assert.True(after.Dirty);
+    }
+
+    [GtkFact]
+    public async Task ThePrompt_AsksAboutOpeningTheNewFile_NotAboutClosing()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var files = Fixture(scope);
+      var other = OtherFixture(scope);
+      var window = await OpenDirtyAsync(scope, files);
+
+      await OpenAsync(scope, window, Side.Target, other.TargetPath, RetimerWindow.ChoiceCancel);
+      string? replacing = scope.Read(() => window.LastPrompt);
+
+      await scope.RunIdleAsync(() =>
+      {
+        window.CloseChoice = () => Task.FromResult(RetimerWindow.ChoiceCancel);
+        window.RequestClose();
+      });
+      string? closing = scope.Read(() => window.LastPrompt);
+
+      Assert.Equal("Save the changes to target.ass before opening target.ass?", replacing);
+      Assert.DoesNotContain("closing", replacing);
+      Assert.Equal(RetimerWindow.CloseQuestion, closing);
+    }
+
+    [GtkFact]
+    public async Task OpeningSomethingThatIsNotSubtitles_WhileDirty_ErrorsWithoutAskingOrSaving()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var files = Fixture(scope);
+      var window = await OpenDirtyAsync(scope, files);
+      string video = Path.Combine(scope.TempDir, "episode.mkv");
+      File.WriteAllBytes(video, new byte[] { 0x1A, 0x45, 0xDF, 0xA3, 0, 0, 0, 0 });
+      string notReally = Path.Combine(scope.TempDir, "broken.srt");   // a subtitle name on a directory
+      Directory.CreateDirectory(notReally);
+
+      var errors = new List<string>();
+      await scope.RunAsync(window, () => window.ErrorShown = (message, detail) => errors.Add(detail));
+      // Save is the answer that would write a file for nothing: it must not be asked.
+      var (videoLoaded, videoPrompts) = await OpenAsync(scope, window, Side.Target, video, RetimerWindow.ChoiceSave);
+      var (dirLoaded, dirPrompts) = await OpenAsync(scope, window, Side.Target, notReally, RetimerWindow.ChoiceSave);
+
+      var after = State(scope, window);
+      Assert.False(videoLoaded);
+      Assert.False(dirLoaded);
+      Assert.Equal(0, videoPrompts + dirPrompts);
+      Assert.Equal(2, errors.Count);
+      Assert.Contains("episode.mkv is not an .ass, .ssa or .srt file", errors[0]);
+      // Nothing was written and the edits are still there, unsaved.
+      Assert.Empty(after.Saved);
+      Assert.True(after.Dirty);
+      Assert.Equal(20, after.Count);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(files.TargetPath)));
+    }
+
+    [GtkFact]
+    public async Task DroppingSomethingThatIsNotSubtitles_WhileDirty_RefusesTheDropWithoutAsking()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var files = Fixture(scope);
+      var window = await OpenDirtyAsync(scope, files);
+      string video = Path.Combine(scope.TempDir, "episode.mkv");
+      File.WriteAllBytes(video, new byte[] { 0x1A, 0x45, 0xDF, 0xA3 });
+
+      int prompts = 0;
+      var errors = new List<string>();
+      bool taken = true;
+      await scope.RunAsync(window, () =>
+      {
+        window.ErrorShown = (_, detail) => errors.Add(detail);
+        window.CloseChoice = () => { prompts++; return Task.FromResult(RetimerWindow.ChoiceSave); };
+        taken = window.DropFile(Side.Target, new GObject.Value((GObject.Object)Gio.FileHelper.NewForPath(video)));
+      });
+
+      Assert.False(taken);
+      Assert.Equal(0, prompts);
+      Assert.Single(errors);
+      Assert.True(State(scope, window).Dirty);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(files.TargetPath)));
+    }
+
+    [GtkFact]
+    public async Task DroppingATargetWhileThePromptIsUp_IsRefused()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var files = Fixture(scope);
+      var other = OtherFixture(scope);
+      var third = SubtitleFixtures.Pair(Path.Combine(scope.TempDir, "third"), count: 5, seed: 13);
+      var window = await OpenDirtyAsync(scope, files);
+
+      bool? droppedDuringPrompt = null;
+      bool dropping = false;
+      bool loaded = await scope.Fixture.RunOnGtkAsync(async () =>
+      {
+        window.CloseChoice = () =>
+        {
+          // The user drops another file while the question is still open
+          // (once: a drop that did get through would ask again from inside).
+          if (!dropping)
+          {
+            dropping = true;
+            droppedDuringPrompt = window.DropFile(
+              Side.Target, new GObject.Value((GObject.Object)Gio.FileHelper.NewForPath(third.TargetPath)));
+          }
+          return Task.FromResult(RetimerWindow.ChoiceCancel);
+        };
+        bool ok = await window.OpenPathAsync(Side.Target, other.TargetPath);
+        await Pump.SettleAsync(window);
+        return ok;
+      });
+
+      // Refused, so GTK shows it as refused instead of taking it and dropping it.
+      Assert.False(droppedDuringPrompt);
+      Assert.False(loaded);
+      var after = State(scope, window);
+      Assert.Equal(20, after.Count);
+      Assert.True(after.Dirty);
+    }
+
+    [GtkFact]
+    public async Task ClosingWhileTheReplacePromptIsUp_ClosesOnceItIsAnswered()
+    {
+      using var scope = new UiTestScope(_gtk);
+      var files = Fixture(scope);
+      var other = OtherFixture(scope);
+      var window = await OpenDirtyAsync(scope, files);
+
+      var asked = new List<string?>();
+      await scope.Fixture.RunOnGtkAsync(async () =>
+      {
+        window.CloseChoice = () =>
+        {
+          asked.Add(window.LastPrompt);
+          // First the replace prompt: the window manager's close button is
+          // pressed while it is up, then Cancel. Then the close prompt that
+          // the close request has been waiting to ask: Discard.
+          if (asked.Count == 1)
+          {
+            window.RequestClose();
+            return Task.FromResult(RetimerWindow.ChoiceCancel);
+          }
+          return Task.FromResult(RetimerWindow.ChoiceDiscard);
+        };
+        await window.OpenPathAsync(Side.Target, other.TargetPath);
+        await Pump.IdleAsync();
+        return true;
+      });
+
+      Assert.Equal(2, asked.Count);
+      Assert.Contains("before opening", asked[0]);
+      Assert.Equal(RetimerWindow.CloseQuestion, asked[1]);
+      Assert.False(scope.Read(() => UiTestScope.IsAlive(window)), "the close asked for during the prompt was lost");
+    }
+
+    /// <summary>Japanese dialogue in Shift-JIS without a byte-order mark, as a subs2srs user's file often is.</summary>
+    private static string ShiftJisFile(string dir, string name, string text)
+    {
+      Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+      Directory.CreateDirectory(dir);
+      string path = Path.Combine(dir, name);
+      string content = name.EndsWith(".srt", StringComparison.Ordinal)
+        ? "1\n00:00:01,000 --> 00:00:02,500\n" + text + "\n\n2\n00:00:04,000 --> 00:00:05,000\n" + text + "2\n\n"
+        : "[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n" +
+          "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,," + text + "\n";
+      File.WriteAllBytes(path, Encoding.GetEncoding("shift_jis").GetBytes(content));
+      return path;
+    }
+
+    [GtkFact]
+    public async Task OpeningATargetThatIsNotValidInItsEncoding_IsRefused_AndTheCommandLinesEncodingIsUsed()
+    {
+      using var scope = new UiTestScope(_gtk);
+      string sjis = ShiftJisFile(Path.Combine(scope.TempDir, "sjis"), "target.ass", "日本語のテキスト");
+      var window = await scope.OpenWindowAsync();
+
+      var errors = new List<string>();
+      await scope.RunAsync(window, () => window.ErrorShown = (_, detail) => errors.Add(detail));
+      var (refused, _) = await OpenAsync(scope, window, Side.Target, sjis, RetimerWindow.ChoiceCancel);
+
+      // Read as UTF-8 the text would be saved back as U+FFFD: not loaded.
+      Assert.False(refused);
+      var error = Assert.Single(errors);
+      Assert.Contains("not valid utf-8", error);
+      Assert.Contains("--target-encoding", error);
+      Assert.Null(scope.Read(() => window.Engine.Target));
+
+      // With the encoding --target-encoding gave, the same file opens intact.
+      await scope.RunAsync(window, () => window.TargetEncoding = Encoding.GetEncoding("shift_jis"));
+      var (loaded, _) = await OpenAsync(scope, window, Side.Target, sjis, RetimerWindow.ChoiceCancel);
+      Assert.True(loaded);
+      Assert.Equal("日本語のテキスト", scope.Read(() => window.Engine.TargetLines[0].DisplayText));
+    }
+
+    [GtkFact]
+    public async Task OpeningAReference_UsesTheReferenceEncoding()
+    {
+      using var scope = new UiTestScope(_gtk);
+      string sjis = ShiftJisFile(Path.Combine(scope.TempDir, "sjis"), "reference.srt", "字幕");
+      var window = await scope.OpenWindowAsync();
+
+      await scope.RunAsync(window, () => window.ReferenceEncoding = Encoding.GetEncoding("shift_jis"));
+      var (loaded, _) = await OpenAsync(scope, window, Side.Reference, sjis, RetimerWindow.ChoiceCancel);
+
+      Assert.True(loaded);
+      Assert.Equal("字幕", scope.Read(() => window.Engine.ReferenceLines[0].DisplayText));
     }
 
     [GtkFact]

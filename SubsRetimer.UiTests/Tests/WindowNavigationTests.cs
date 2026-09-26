@@ -73,6 +73,49 @@ namespace SubsRetimer.UiTests.Tests
       Assert.Equal(back.Expected, back.SelectedReference);
     }
 
+    /// <summary>
+    /// A Time Shift that moves target rows back past the rows above them
+    /// leaves the list out of order. Left/Right from a reference line must
+    /// still land on the target line that starts with it.
+    /// </summary>
+    [GtkFact]
+    public async Task SelectClosestOnOtherSide_AfterAShiftLeftTheTargetOutOfOrder_FindsTheMovedLine()
+    {
+      using var scope = new UiTestScope(_gtk);
+      // 40 lines; the target is five minutes late, and from row 30 ten, so
+      // no target line starts with reference row 0 until the shift.
+      var files = SubtitleFixtures.Pair(
+        scope.TempDir, count: 40, silenceBefore: Array.Empty<int>(), cuts: new[] { (0, 300000d), (30, 300000d) });
+      var window = await scope.OpenWindowAsync();
+      await scope.RunAsync(window, () =>
+      {
+        window.LoadReference(files.ReferencePath);
+        window.LoadTarget(files.TargetPath);
+        window.SelectReference(0);
+        window.SelectTarget(30);
+      });
+      // Target row 30 onto reference row 0: rows 30-39 now start before row 1.
+      await scope.RunAsync(window, window.TimeShift);
+      Assert.False(scope.Read(() => RetimerEngine.IsSortedByStart(window.Engine.TargetLines)));
+
+      int found = -1;
+      await scope.RunAsync(window, () =>
+      {
+        window.SelectReference(0);
+        found = window.SelectClosestOnOtherSide(Side.Reference);
+      });
+
+      var state = scope.Read(() => new
+      {
+        window.SelectedTarget,
+        Reference = window.Engine.ReferenceLines[0].Start,
+        Target = window.Engine.TargetLines[30].Start,
+      });
+      Assert.Equal(state.Reference, state.Target);
+      Assert.Equal(30, found);
+      Assert.Equal(30, state.SelectedTarget);
+    }
+
     [GtkFact]
     public async Task JumpToGap_WalksTheOrangeRowsForwardsAndBackwards()
     {

@@ -2,7 +2,9 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using System.Text;
 using SubsRetimer.Core;
+using SubsRetimer.Editor;
 using Xunit;
 
 namespace SubsRetimer.Tests
@@ -157,22 +159,197 @@ namespace SubsRetimer.Tests
       Assert.Null(none.Target);
     }
 
-    [Fact]
+    /// <summary>
+    /// Through the real executable, not in process: GTK initialisation is
+    /// global to a process, and the native library reads DISPLAY itself, so
+    /// Environment.SetEnvironmentVariable would not reach it.
+    ///
+    /// Linux only: emptying DISPLAY and WAYLAND_DISPLAY takes the display
+    /// away there and nowhere else. On Windows and macOS GDK always has one,
+    /// so the real window would open inside the test run.
+    /// </summary>
+    [LinuxFact]
     public void Editor_WithoutADisplay_ExitsOneWithMessage()
     {
-      // Through the real executable, not in process: GTK initialisation is
-      // global to a process, and the native library reads DISPLAY itself, so
-      // Environment.SetEnvironmentVariable would not reach it.
       var (rf, tg) = MakePair();
-      var r = RunProcess(new[] { rf, tg }, psi =>
-      {
-        psi.Environment["DISPLAY"] = "";
-        psi.Environment["WAYLAND_DISPLAY"] = "";
-      });
+      var r = RunProcess(new[] { rf, tg }, WithoutDisplay);
 
       Assert.Equal(Cli.ExitError, r.Code);
       Assert.Equal("", r.Out);
       Assert.Contains("cannot open a display", r.Err);
+    }
+
+    /// <summary>--check-editor never opens a window, so this real run cannot hang even where a display does open.</summary>
+    [LinuxFact]
+    public void CheckEditor_WithoutADisplay_ExitsOneAndSaysWhy()
+    {
+      var r = RunProcess(new[] { "--check-editor" }, WithoutDisplay);
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.Contains("cannot open a display", r.Err);
+    }
+
+    /// <summary>A child environment with no display: no X, no Wayland, and no backend (broadway, say) inherited from this one.</summary>
+    private static void WithoutDisplay(ProcessStartInfo psi)
+    {
+      psi.Environment["DISPLAY"] = "";
+      psi.Environment["WAYLAND_DISPLAY"] = "";
+      psi.Environment.Remove("GDK_BACKEND");
+      psi.Environment.Remove("BROADWAY_DISPLAY");
+    }
+
+    [Fact]
+    public void Editor_OutputAndEncodings_ReachTheWindow()
+    {
+      var (rf, tg) = MakePair();
+      string output = Path.Combine(Path.GetDirectoryName(tg)!, "chosen.ass");
+      EditorRequest? seen = null;
+
+      var r = WithEditorSeams(
+        probe: Ready,
+        runWindow: request => { seen = request; return Array.Empty<string>(); },
+        () => Run("-o", output, "--ref-encoding", "windows-1252", "--target-encoding", "utf-8", rf, tg));
+
+      Assert.Equal(Cli.ExitNothingSaved, r.Code);
+      Assert.NotNull(seen);
+      // Save writes where --output says, as --auto does ...
+      Assert.Equal(output, seen!.OutputPath);
+      // ... and files opened from the window later are read as the command line said.
+      Assert.Equal("windows-1252", seen.ReferenceEncoding?.WebName);
+      Assert.Equal("utf-8", seen.TargetEncoding?.WebName);
+    }
+
+    [Fact]
+    public void Editor_OutputWithoutATarget_ExitsOneBeforeTheWindow()
+    {
+      var (rf, _) = MakePair();
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: Ready,
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run("-o", "out.ass", rf));
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.False(opened);
+      Assert.Contains("--output needs TARGET", r.Err);
+    }
+
+    [Fact]
+    public void Editor_OutputInTheOtherFormat_ExitsOneBeforeTheWindow()
+    {
+      var (rf, tg) = MakePair();   // the target is .ass
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: Ready,
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run("-o", Path.ChangeExtension(tg, ".srt"), rf, tg));
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.False(opened);
+      Assert.Contains("ASS subtitles are saved as .ass or .ssa, not .srt", r.Err);
+    }
+
+    [Fact]
+    public void Auto_OutputInTheOtherFormat_ExitsOneAndWritesNothing()
+    {
+      var (rf, tg) = MakePair();
+      string output = Path.ChangeExtension(tg, ".out.srt");
+      var r = Run("--auto", "-o", output, "--print-output", rf, tg);
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.False(File.Exists(output));
+      Assert.Contains("not .srt", r.Err);
+    }
+
+    /// <summary>Japanese dialogue in Shift-JIS, no BOM: not valid UTF-8, the default.</summary>
+    private static string ShiftJisTarget()
+    {
+      Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+      var lines = Fixtures.Dialogue(120);
+      for (int i = 0; i < lines.Count; i++)
+        lines[i] = new RetimerLine { Start = lines[i].Start + TimeSpan.FromSeconds(15), End = lines[i].End + TimeSpan.FromSeconds(15), Text = "こんにちは" + i, RawIndex = i };
+      return Fixtures.WriteTemp(".ass", Fixtures.AssFile(lines), Encoding.GetEncoding("shift_jis"));
+    }
+
+    [Fact]
+    public void Auto_TargetNotValidInItsEncoding_ExitsOneInsteadOfSavingItChanged()
+    {
+      var (rf, _) = MakePair();
+      string tg = ShiftJisTarget();
+
+      var wrong = Run("--auto", "--print-output", rf, tg);
+      Assert.Equal(Cli.ExitError, wrong.Code);
+      Assert.Equal("", wrong.Out);
+      Assert.Contains("not valid utf-8 text", wrong.Err);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(tg)));
+
+      // Named, the same file goes through and keeps every byte of its text.
+      var right = Run("--auto", "--target-encoding", "shift_jis", "--print-output", rf, tg);
+      Assert.Equal(Cli.ExitSaved, right.Code);
+      byte[] saved = File.ReadAllBytes(RetimerIO.DefaultOutputPath(tg));
+      byte[] text = Encoding.GetEncoding("shift_jis").GetBytes("こんにちは7");
+      Assert.True(saved.AsSpan().IndexOf(text) >= 0, "the Shift-JIS text did not survive the save");
+    }
+
+    [Fact]
+    public void Editor_TargetNotValidInItsEncoding_ExitsOneBeforeTheWindow()
+    {
+      var (rf, _) = MakePair();
+      string tg = ShiftJisTarget();
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: Ready,
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run(rf, tg));
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.False(opened);
+      Assert.Contains("--target-encoding", r.Err);
+    }
+
+    [Fact]
+    public void Editor_GtkMissing_SaysSoInsteadOfBlamingTheDisplay()
+    {
+      var (rf, tg) = MakePair();
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: () => new EditorProbe(EditorStatus.NoGtk, "Unable to load shared library 'libgtk-4.so.1' or one of its dependencies."),
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run(rf, tg));
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.False(opened);
+      Assert.Equal("", r.Out);
+      Assert.Contains("GTK 4 could not be loaded", r.Err);
+      Assert.Contains("libgtk-4.so.1", r.Err);
+      Assert.DoesNotContain("display", r.Err);
+    }
+
+    [Theory]
+    [InlineData(EditorStatus.Ready, Cli.ExitSaved, "can start")]
+    [InlineData(EditorStatus.NoDisplay, Cli.ExitError, "cannot open a display")]
+    [InlineData(EditorStatus.NoGtk, Cli.ExitError, "GTK 4 could not be loaded")]
+    public void CheckEditor_ReportsTheProbeAndNeverOpensTheWindow(EditorStatus status, int code, string message)
+    {
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: () => new EditorProbe(status),
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run("--check-editor"));
+
+      Assert.Equal(code, r.Code);
+      Assert.False(opened);
+      Assert.Equal("", r.Out);
+      Assert.Contains(message, r.Err);
+    }
+
+    [Fact]
+    public void Version_IsTheProductVersion()
+    {
+      Assert.Equal(ProductInfo.Version, Cli.Version);
+      Assert.Equal(ProductInfo.Version, Run("--version").Out.Trim());
     }
 
     [Fact]
@@ -180,12 +357,12 @@ namespace SubsRetimer.Tests
     {
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
-        canOpenDisplay: () => true,
-        runWindow: (reference, target, _) =>
+        probe: Ready,
+        runWindow: request =>
         {
           // Both files are loaded before the window opens.
-          Assert.NotNull(reference);
-          Assert.NotNull(target);
+          Assert.NotNull(request.Reference);
+          Assert.NotNull(request.Target);
           return Array.Empty<string>();
         },
         () => Run(rf, tg));
@@ -202,13 +379,13 @@ namespace SubsRetimer.Tests
       string second = Path.GetFullPath(Path.ChangeExtension(tg, ".copy.ass"));
 
       var r = WithEditorSeams(
-        canOpenDisplay: () => true,
+        probe: Ready,
         // The window reports each path as it writes the file; what the print
         // proves is that the callback, not the returned list, does the printing.
-        runWindow: (_, _, onSaved) =>
+        runWindow: request =>
         {
           var paths = new[] { first, second };
-          foreach (string path in paths) onSaved?.Invoke(path);
+          foreach (string path in paths) request.OnSaved?.Invoke(path);
           return paths;
         },
         () => Run("--print-output", rf, tg));
@@ -222,11 +399,11 @@ namespace SubsRetimer.Tests
     {
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
-        canOpenDisplay: () => true,
+        probe: Ready,
         // Without --print-output there is no callback to report to at all.
-        runWindow: (_, _, onSaved) =>
+        runWindow: request =>
         {
-          Assert.Null(onSaved);
+          Assert.Null(request.OnSaved);
           return new[] { Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) };
         },
         () => Run(rf, tg));
@@ -240,8 +417,8 @@ namespace SubsRetimer.Tests
     {
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
-        canOpenDisplay: () => true,
-        runWindow: (_, _, _) => Array.Empty<string>(),
+        probe: Ready,
+        runWindow: _ => Array.Empty<string>(),
         () => Run("--print-output", rf, tg));
 
       Assert.Equal(Cli.ExitNothingSaved, r.Code);
@@ -253,32 +430,37 @@ namespace SubsRetimer.Tests
     {
       var (rf, tg) = MakePair();
       var r = WithEditorSeams(
-        canOpenDisplay: () => true,
-        runWindow: (_, _, _) => throw new InvalidOperationException("gtk fell over"),
+        probe: Ready,
+        runWindow: _ => throw new InvalidOperationException("gtk fell over"),
         () => Run(rf, tg));
 
       Assert.Equal(Cli.ExitError, r.Code);
       Assert.Equal("", r.Out);
-      Assert.Contains("gtk fell over", r.Err);
+      Assert.Contains("the editor failed: gtk fell over", r.Err);
     }
+
+    private static EditorProbe Ready() => new(EditorStatus.Ready);
 
     /// <summary>Swap the editor seams for the duration of one call and put them back.</summary>
     private static T WithEditorSeams<T>(
-      Func<bool> canOpenDisplay,
-      Func<SubtitleFile?, SubtitleFile?, Action<string>?, IReadOnlyList<string>> runWindow,
+      Func<EditorProbe> probe,
+      Func<EditorRequest, IReadOnlyList<string>> runWindow,
       Func<T> body)
     {
-      var display = Cli.CanOpenDisplay;
+      var display = Cli.ProbeEditor;
+      var start = Cli.ProbeEditorStart;
       var window = Cli.RunWindow;
       try
       {
-        Cli.CanOpenDisplay = canOpenDisplay;
+        Cli.ProbeEditor = probe;
+        Cli.ProbeEditorStart = probe;
         Cli.RunWindow = runWindow;
         return body();
       }
       finally
       {
-        Cli.CanOpenDisplay = display;
+        Cli.ProbeEditor = display;
+        Cli.ProbeEditorStart = start;
         Cli.RunWindow = window;
       }
     }
@@ -312,10 +494,20 @@ namespace SubsRetimer.Tests
       configure?.Invoke(psi);
 
       using var p = Process.Start(psi)!;
-      string stdout = p.StandardOutput.ReadToEnd();
-      string stderr = p.StandardError.ReadToEnd();
-      p.WaitForExit();
-      return (p.ExitCode, stdout, stderr);
+      var stdout = p.StandardOutput.ReadToEndAsync();
+      var stderr = p.StandardError.ReadToEndAsync();
+      // A child that opened a window after all would wait for a user forever;
+      // end it and fail instead of hanging the test run.
+      if (!p.WaitForExit(ProcessTimeout))
+      {
+        p.Kill(entireProcessTree: true);
+        p.WaitForExit();
+        Assert.Fail($"subsretimer {string.Join(" ", args)} did not exit within {ProcessTimeout}");
+      }
+      p.WaitForExit();   // drains the redirected streams
+      return (p.ExitCode, stdout.Result, stderr.Result);
     }
+
+    private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
   }
 }
