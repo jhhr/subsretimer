@@ -1,22 +1,27 @@
 <#
 .SYNOPSIS
   Check a published subsretimer.exe with MSYS2 removed from PATH: the bundled GTK layout
-  is complete, --version answers, and --auto re-times a pair of fixture files.
+  is complete, --version answers, GTK loads from the bundle, and --auto re-times a pair
+  of fixture files.
 
 .DESCRIPTION
   Checks:
     1. the files the GTK bundle must contain are all there (DLLs, compiled schemas,
        pixbuf loaders.cache, the Adwaita theme and this application's own icon),
     2. "subsretimer.exe --version" exits 0 and prints a version,
-    3. "subsretimer.exe --auto --print-output REF TARGET" on two fixture files this
+    3. "subsretimer.exe --check-editor" exits 0: GTK loads from the bundle (every DLL
+       libgtk-4-1.dll needs has to resolve), a display opens, and gtk_init() runs, which
+       reads the bundled GSettings schemas and aborts without them,
+    4. "subsretimer.exe --auto --print-output REF TARGET" on two fixture files this
        script writes itself exits 0, prints the saved path on stdout and nothing else,
        and the saved file carries the reference's timings with the target's text.
 
-  The editor window is deliberately not started. subsretimer is a console executable
-  (its stdout is part of the contract with subs2srs), so a started process's
+  The editor window itself is deliberately not opened. subsretimer is a console
+  executable (its stdout is part of the contract with subs2srs), so a started process's
   MainWindowHandle is its console window, not the GTK window, and a window check built
-  on that would pass with no GTK at all. That GTK itself starts from the bundle stays a
-  manual check on a Windows machine, like the editor's keys and mouse clicks.
+  on that would pass with no GTK at all. --check-editor goes as far as a window would
+  without one; the window, the icon and the editor's keys and mouse clicks stay a manual
+  check on a Windows machine.
 
   Must run on Windows PowerShell 5.1 as well as 7: no &&, ||, ?: or ?? here, and the
   executable is started through Start-Process with its output redirected, because in 5.1
@@ -92,7 +97,15 @@ $version = @($r.StdOut | Where-Object { $_ -match '\S' })
 if ($version.Count -eq 0) { throw '--version printed nothing on stdout' }
 Write-Host ("version         : {0}" -f $version[0])
 
-# ── 3. --auto on two fixture files ────────────────────────────────────────────
+# ── 3. GTK loads from the bundle ──────────────────────────────────────────────
+# A missing or mismatched DLL fails the load; missing schemas abort gtk_init().
+$r = Invoke-Exe @('--check-editor')
+foreach ($line in $r.StdErr) { Write-Host "    $line" }
+if ($r.ExitCode -ne 0) { throw "--check-editor exited $($r.ExitCode): GTK does not start from the bundle" }
+if (@($r.StdOut | Where-Object { $_ -match '\S' }).Count -ne 0) { throw '--check-editor printed on stdout' }
+Write-Host 'gtk             : ok, loads and initialises from the bundle'
+
+# ── 4. --auto on two fixture files ────────────────────────────────────────────
 # Six lines of dialogue; the target is the same dialogue exactly 5 s late, so auto-align
 # must find one -5 s segment and the saved file must carry the reference's timings.
 $work = Join-Path ([IO.Path]::GetTempPath()) ('subsretimer-smoke-' + [Guid]::NewGuid().ToString('N'))

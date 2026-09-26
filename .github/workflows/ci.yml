@@ -1,15 +1,27 @@
 name: CI
 
+# Everything the build or a test reads: the sources, the project files,
+# Directory.Build.props (the version and the shared properties of every
+# project), and dist/ and the Makefile, which a test checks the desktop entry
+# against.
 on:
   push:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'dist/**'
+      - 'Makefile'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'dist/**'
+      - 'Makefile'
       - '.github/workflows/ci.yml'
 
 jobs:

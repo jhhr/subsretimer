@@ -37,16 +37,25 @@ jobs:
           if (-not (Test-Path (Join-Path $root 'ucrt64\bin\libgtk-4-1.dll'))) { throw "libgtk-4-1.dll not found under $root" }
           "MSYS2_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # The tag name reaches the scripts through the environment, never as
+      # expression text inside them: git allows $, ( and ) in a ref name, and
+      # text expanded into a PowerShell string would run as code in a job
+      # that can write to the repository. It also has to be a version.
       - name: Version from tag
         id: ver
+        env:
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $v = "${{ github.ref_name }}".TrimStart('v')
+          $v = $env:REF_NAME.TrimStart('v')
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "tag '$env:REF_NAME' is not v<major>.<minor>.<patch>[-<pre>]" }
           "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Publish (self-contained win-x64)
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           dotnet publish SubsRetimer/SubsRetimer.csproj -c Release -r win-x64 --self-contained true `
-            -p:Version=${{ steps.ver.outputs.version }} -o out\win-x64
+            "-p:Version=$env:VERSION" -o out\win-x64
 
       - name: Bundle GTK runtime
         run: pwsh dist/windows/bundle-gtk.ps1 -Msys2Root $env:MSYS2_ROOT -PublishDir out\win-x64
@@ -55,9 +64,11 @@ jobs:
         run: pwsh dist/windows/smoke.ps1 -PublishDir out\win-x64
 
       - name: Zip
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
         run: |
           Copy-Item LICENSE, README.md, CHANGELOG.md out\win-x64\
-          $zip = "subsretimer-${{ steps.ver.outputs.version }}-win-x64.zip"
+          $zip = "subsretimer-$env:VERSION-win-x64.zip"
           Compress-Archive -Path out\win-x64\* -DestinationPath $zip -CompressionLevel Optimal
           Get-Item $zip | Select-Object Name, Length
 
