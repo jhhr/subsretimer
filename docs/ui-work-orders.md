@@ -108,27 +108,120 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-09-21, before phase 1)
+## 3. State of the code (kept by the lead; as of 2026-09-21, after phase 11: complete)
 
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, DisplayText, Style, Actor,
   RawIndex), `TimeFormat` (parse/format ASS and SRT times, `FormatOffset`),
   `SubtitleFile` + `RetimerIO` (load, render with only timestamps replaced, save with the
   original encoding/BOM/newline, `DefaultOutputPath` = `name_retimed.ext`),
   `RetimerEngine` (sorted lines, `ShiftFrom`, `ShiftToMatch`, `DeltaToMatch`, undo/redo
-  snapshots, `IsDirty`, `Save`, static `Overlap`, `ClosestIndex`, `BestOverlap`,
+  snapshots, `IsDirty`, `Save`, `Changed` event + `Version` raised after every
+  operation that changed something (never on a no-op), static `Overlap`, `ClosestIndex`, `BestOverlap`,
+  `NextLargeGap`/`PreviousLargeGap` over a `bool[]`,
   `LargeGapFlags`, `MismatchFlags`, `AverageMismatchSeconds`), `AutoAlign` (`Compute`,
   `Apply`, `Describe`).
 - `SubsRetimer` (executable `subsretimer`): `Cli.Parse/Run/RunAuto/RunEditor`, exit
   codes 0 saved / 2 nothing saved / 1 error, stdout carries only saved paths under
-  `--print-output`. `RunEditor` is a stub that exits 1.
-- `SubsRetimer.Tests`: xUnit, 58 tests, `Fixtures.Lines` (periodic) and
+  `--print-output`. `RunEditor` loads the given files with `LoadChecked`, asks
+  `Cli.CanOpenDisplay()` (exit 1 + message when false), runs `Cli.RunWindow(reference,
+  target)` inside a catch-all (exit 1 + message), and returns 0 when the returned saved
+  paths are non-empty, else 2. Both are `internal static Func` seams that `CliTests`
+  swaps and restores in a `finally`; nothing under `dotnet test` may start GTK
+  (`Gtk.Module.Initialize()` exits a display-less process).
+- `SubsRetimer.Gtk` (assembly name; namespace `SubsRetimer.Editor`): `EditorHost`
+  (`CanOpenDisplay` = `Gdk.Module.Initialize()` + `Gdk.Display.Open(null)`; `Run` creates
+  the `Gtk.Application` and returns `window.SavedPaths`), `RetimerWindow :
+  Gtk.ApplicationWindow` (owns the `RetimerEngine`, subscribes to `Changed` once, top
+  strip, `Gtk.Paned` with a `LineListView` per side, detail strip; internal surface:
+  `Engine`, `SavedPaths`, `LoadReference/LoadTarget(path, enc?)`, `SetFile(side, file)`,
+  `SelectReference/SelectTarget(i)`, `SelectedReference/SelectedTarget` (-1 = none),
+  `RowState(side, i)`, `Counters(side)`, `DetailSummary`, `BoundStartText(side, i)`,
+  `StoreRebuilds`; since phase 3 also `TimeShift()`, `Undo()`, `Redo()`, `Save()`,
+  `SaveAs(path)`, `IsDirty`, `CanTimeShift`, `RequestClose()` and the seam
+  `Func<Task<int>>? CloseChoice` that stands in for the Save/Discard/Cancel dialog).
+  Buttons Time Shift / Undo / Redo / Save / Save As sit at the right end of the detail
+  strip; `RefreshButtons()` and `RefreshTitle()` run from the `Changed` handler and the
+  selection path. Every save goes through `SaveTo(path?)`, which appends to `SavedPaths`
+  (deduplicated). `OnCloseRequest` vetoes while dirty and `PromptThenClose` ends with
+  `Destroy()`; `Widget.OnDestroy` fires for neither `Close()` nor `Destroy()`.
+  `RunEditor` prints `SavedPaths` under `--print-output` and exits 0/2 from it.
+  Since phase 4: `Gio.SimpleAction`s on the window (`win.open-reference`, `open-target`,
+  `save`, `save-as`, `quit`, `undo`, `redo`, `time-shift`, `auto-align` (disabled until
+  phase 5), `help`, `about`; constants on the window), a `Gtk.PopoverMenuBar` File/Edit/
+  Help as the first child of the root box, accelerators through
+  `SetAccelsForAction`; `RefreshButtons()` keeps action state and button sensitivity in
+  step. Per list (`AttachInput`): a capture-phase `Gtk.EventControllerKey` → `OnListKey`
+  (Left/Right closest line on the other side + focus; Ctrl+Up/Down gap jump; Return =
+  Time Shift), `Gtk.GestureClick` button 3 / button 2 → `OnListClick` (selects the clicked
+  row via `LineListView.IndexAt(x, y)`, then closest line / Time Shift). Internal:
+  `SelectClosestOnOtherSide(side)`, `JumpToGap(side, forward)` (index or -1),
+  `ActivateAction(name)`, `KeyTable`, `AboutText`, `ShowMessage`; on `LineListView`:
+  `GapFlags`, `ScrollTo(index, focus)`, `IndexAt(x, y)`. GTK 4 event synthesis is not
+  exposed in GirCore 0.7: the handlers are the test seam, not real key delivery.
+  Since phase 5: `CanAutoAlign` (= `HasBoth`), `AutoAlign()` (returns the segments
+  applied; `AutoAlign.Apply` pushes one undo step per segment **that moves**, a zero
+  delta is silent), `StatusText` / `NoAlignment`, a dim status label between the lists
+  and the detail strip (hidden while empty, cleared by `SetFile`), the Auto Align button
+  after Time Shift and `win.auto-align` enabled from `RefreshButtons`.
+  `ChoiceSave/Discard/Cancel` are internal constants.
+- After phase 6 (lead): `IsDirty` is no longer a sticky flag but "undo depth differs
+  from the clean depth" (set on load and save, -1 once unreachable), so undoing back to
+  the loaded or saved state clears the star.
+- `SubsRetimer.UiTests` (xUnit, 31 tests, `[GtkFact]` skips every test when
+  `EditorHost.CanOpenDisplay()` is false): `Harness/GtkFixture` (one GTK thread,
+  `RunOnGtk`/`RunOnGtkAsync`), `Pump` (`IdleAsync`, `FramesAsync`, `SettleAsync`,
+  `WaitUntilAsync`; never settle on a window an action may have destroyed, use
+  `UiTestScope.RunIdleAsync`), `Screenshot` (`SUBSRETIMER_UITEST_ARTIFACTS`),
+  `UiTestScope` (temp dir, `OpenWindowAsync`, `RunAsync`, `Read`, leak check through
+  `Gtk.Window.GetToplevels()`), `SubtitleFixtures` (irregular whole-centisecond timings,
+  40 s silences, cumulative cuts; writes `reference.srt` + `target.ass`). Tests in
+  `Tests/Window{Load,Edit,Navigation,AutoAlign}Tests.cs` call the internal surface.
+  Run: `make test-ui` (= `GSK_RENDERER=cairo xvfb-run -a dotnet test ...`); CI has a
+  `ui-tests` job.
+- Since phase 7: `TimelineLayout` (display-free: `ScaleSeconds` clamped 4..120, default
+  10; `ScaleWindow`, `VisibleLines`, `XFor`, `BarRect`, ticks and labels; 8 unit tests)
+  and `TimelineChart` (a `Gtk.Box` with `+`/`-` zoom buttons and a `DrawingArea` drawn
+  through `SetDrawFunc`; `SetLines`, `SetActive`, `QueueDraw`, `ClickAt(button, x, y)`
+  → `Clicked`, `DrawCount`/`LastDrawError`; a throwing draw is caught, never escapes the
+  native callback). Packed between the menu bar and the top strip, 64 px. Window:
+  `Chart`, `ChartClick(button)`, `MoveTargetSelection(step)`, `RefreshChart()`. Cairo in
+  0.7: `LineWidth` is a property, the pressed button comes from
+  `GestureSingle.GetCurrentButton()`. `Tests/WindowChartTests.cs` has 6 UI tests.
+- Since phase 8: file drops work. One `Gtk.DropTarget.New(Gio.FileHelper.GetGType(),
+  Copy)` per pane box (`AttachDrop`), `DropFile(side, GObject.Value)` is the handler and
+  the test seam (`DropSignalArgs` cannot be hand-built), `PathFromDrop` takes a `GFile`
+  or the first line of text (path or `file://` URI); several files → the first only.
+  `DropTargetFor(side)`; pane hints say "Open or drop here". `Gdk.FileList` cannot be
+  read in 0.7 and `DropTarget` has no `SetGtypes`. `Tests/WindowDropTests.cs`, 4 tests.
+- Since phase 9: `assets/` (the original's icon, GPL-3), `ApplicationIcon` and
+  `RuntimeIdentifiers linux-x64;win-x64` in the csproj (`OutputType` stays `Exe`: the
+  CLI needs a real stdout, so a console accompanies the editor on Windows),
+  `RetimerWindow.SetIconName("subsretimer")` with a UI test, hicolor icon install in the
+  `Makefile`, `dist/windows/bundle-gtk.ps1` + `smoke.ps1` (smoke checks the bundle layout,
+  `--version` and `--auto`; it does not start the editor), `make publish-windows`,
+  `SubsRetimer/WindowsRuntimeSetup.cs` (sets XDG/GSettings/pixbuf/GSK variables when the
+  bundle layout is present, first thing in `Main`), `.github/workflows/release.yml`
+  (Windows zip on `v*` tags, lead). Neither PowerShell script has run yet: no `pwsh` here.
+- Since phase 11: `OpenPathAsync(side, path)` is the way in for Open and drops; for the
+  target it runs `ConfirmReplaceTarget()` (Save/Discard/Cancel through
+  `AskAboutUnsavedChanges`, so `CloseChoice` drives it) when dirty; a reference never
+  asks. `EditorHost.Run(reference, target, onSaved)` → `RetimerWindow.PathSaved`, invoked
+  from `SaveTo` for each new path, so `RunEditor` prints and flushes as each file is
+  written (`Cli.RunWindow` is a 3-arg seam). `KeyTable` lists the timeline bindings and
+  the README table is identical to it. `Directory.Build.props` holds `Version`, `Authors`,
+  `Copyright`, `PackageLicenseExpression`; `-p:Version=` on publish still overrides.
+  `Tests/WindowReplaceTests.cs`, 6 tests. `LineListView` (`Gio.ListStore` of `Gtk.StringObject`, bound-cell
+  map filled in bind / emptied in unbind, `Refresh()` rewrites text and CSS classes in
+  place, store rebuilt only in `SetLines`), `RetimerStyles` (one CSS provider:
+  `retimer-gap`, `retimer-mismatch`, `retimer-overlap-good/bad`, hint). A dismissed
+  `Gtk.FileDialog` surfaces as a `GLib.GException`; `Gtk.AlertDialog` is `new`-ed.
+- `SubsRetimer.Tests`: xUnit, 84 tests, `Fixtures.Lines` (periodic) and
   `Fixtures.Dialogue(count, seed)` (irregular timings; use this for anything about
   alignment or gaps).
-- No GTK project yet. No UI tests yet.
 
 ## 4. Phases
 
-Done: none.
+Done: all, 1 to 11. The work is complete; this file is kept as the record.
 
 ### 1 — Core: change notification and gap navigation
 
@@ -301,3 +394,362 @@ Template:
     Choices / deviations: ...
     The next phase must know: ...
     Left open: ...
+
+### Phase 1 — 2026-09-21 — `core: notify on change and navigate large gaps`
+
+Built: in `RetimerEngine`, `public event Action? Changed` and `public int
+Version`, both driven by one private `Bump()` called *after* the state is
+updated, from `LoadReference`, `LoadTarget`, `ShiftFrom` (so also
+`ShiftToMatch`), `Undo` and `Redo` on their `true` return, and `Save`. Static
+`NextLargeGap(flags, from)` / `PreviousLargeGap(flags, from)` next to
+`LargeGapFlags`: first flagged index strictly after / before `from`, else -1;
+`from` may be -1 or out of range, a null `flags` throws. New test file
+`SubsRetimer.Tests/RetimerEngineChangeTests.cs`, 8 tests; suite 66 passed.
+
+Choices / deviations: `ShiftFrom` raises exactly when it pushed an undo
+snapshot, so a zero delta (including `ShiftToMatch` on already matching lines)
+is silent. `Save` raises on every successful save, not only a dirty one: the
+title, the saved-paths list and the Save button all follow a save. The plan
+line names the commit subject, not a hash: the doc is inside that commit.
+
+The next phase must know: subscribe to `Changed` in the window constructor and
+never poll; `Version` is for a view that batches. `Changed` runs synchronously
+on the caller's thread and handler exceptions are not caught — one that throws
+propagates out of `ShiftFrom`/`Save`.
+
+Left open: nothing from this phase. No GTK code, no display needed.
+
+### Phase 2 — 2026-09-21 — `gtk: add the editor window with the two line lists`, `cli: open the editor window from the command line`
+
+Built: `SubsRetimer.Gtk`, namespace `SubsRetimer.Editor` (a namespace
+`SubsRetimer.Gtk` shadows the global `Gtk` in every file): `RetimerWindow`
+(top strip, two panes, detail strip, Open buttons), `LineListView` (store,
+columns, bound-cell map, colours), `RetimerStyles`, `EditorHost` (display
+check, `Gtk.Application`). `Cli.RunEditor` opens it behind the seams
+`Cli.CanOpenDisplay` / `Cli.RunWindow`; 69 tests pass.
+
+Choices / deviations: the overlap percent is the target line's overlap with
+the reference, green from 50 % up. `Gtk.AlertDialog` has no `New()` in 0.7:
+`new Gtk.AlertDialog()`. A dismissed `FileDialog` arrives as a
+`GLib.GException` with no readable code, so every one from `OpenAsync`
+counts as dismissed. Surface beyond the order: `SetFile`, `StoreRebuilds`
+and `BoundStartText(side, index)`, which prove an in-place refresh.
+
+The next phase must know: `Gtk.Module.Initialize()` calls `gtk_init()` and
+exits a display-less process, so nothing under `dotnet test` may touch GTK;
+the no-display test spawns the real executable. The working check is
+`Gdk.Module.Initialize()` + `Gdk.Display.Open(null)` (plan, "Facts
+checked"). `RetimerWindow.SavedPaths` is the saving seam and `RunEditor`
+already returns 0 when it is non-empty; only `--print-output` is missing.
+
+Left open: `Makefile` `clean` should also remove `SubsRetimer.Gtk/bin` and
+`SubsRetimer.Gtk/obj` (reported; `ci.yml` needs nothing). No UI tests yet.
+
+### Phase 3 — 2026-09-21 — `gtk: edit, save and ask before closing with changes`, `cli: print the paths the editor saved under --print-output`
+
+Built: five buttons at the end of `RetimerWindow`'s detail strip (Time
+Shift, Undo, Redo, Save, Save As...), sensitivity from `RefreshButtons()`
+called by the `Changed` handler and the selection path; `RefreshTitle()`
+(`*` + `Subs Re-Timer - <target name>`); `SaveTo` (full path, appended to
+`SavedPaths`, errors to a `Gtk.AlertDialog`), the Save As `FileDialog`,
+the close prompt. Surface: `TimeShift`, `Undo`, `Redo`, `Save`,
+`SaveAs(path)`, `IsDirty`, `CanTimeShift`, `RequestClose`, `CloseChoice`.
+`Cli.RunEditor` prints saved paths under `--print-output`; 3 new tests.
+
+Choices / deviations: `SavedPaths` never takes the same path twice, so a
+second save cannot print a line twice. Save and Save As stay sensitive
+when nothing changed (that is how a copy is written). Cancel, a dismissed
+prompt, an unknown answer and a failed save all keep the window open.
+
+The next phase must know: `OnCloseRequest` is
+`ReturningSignalHandler<Gtk.Window, bool>` (`+= (_, _) => VetoClose()`,
+true vetoes); the prompt then calls `Destroy()` itself, which detaches
+the window from the application (`OnDestroy` still does not fire).
+`RequestClose()` runs the same veto, so it needs no realized window.
+Phase 4's actions should call `TimeShift`/`Undo`/`Redo`/`Save`/
+`SaveAsDialog` and leave enabling to `RefreshButtons`. Suite: 72 passed.
+
+Left open: nothing. Scratchpad driver `smoke3` covers it all.
+
+### Phase 4 — 2026-09-21 — `gtk: add the menu, accelerators and list navigation`
+
+Built: eleven `Gio.SimpleAction`s on the window (open-reference,
+open-target, save, save-as, quit, undo, redo, time-shift, auto-align
+disabled until phase 5, help, about), a `Gtk.PopoverMenuBar`
+File/Edit/Help, the seven accelerators the order lists, and
+`RefreshButtons` greying the actions with the buttons. Per list: a
+capture-phase `Gtk.EventControllerKey` (Left/Right, Ctrl+Up/Down, Enter)
+and two `Gtk.GestureClick`s (3 = closest line, 2 = Time Shift). Surface:
+`SelectClosestOnOtherSide(side)`, `JumpToGap(side, forward)`,
+`ActivateAction(name)`, `KeyTable`, `AboutText`; on `LineListView`
+`GapFlags`, `ScrollTo`, `IndexAt`. One engine test (a `ClosestIndex`
+tie: the earlier line wins). Suite: 73 passed.
+
+Choices / deviations: Left and Right both mean "the other list", from
+either side, as the plan words it; only they move the focus. Enter is a
+list key, not an accelerator, so it acts only with a list focused. About
+reads this assembly's informational version (0.1.0), not `Cli.Version`.
+
+The next phase must know: `ScrollTo(pos, null, flags, null)` marshals
+fine in GirCore 0.7; a click finds its row through `Widget.Pick` and
+reference equality on the bound cell boxes. Auto Align belongs in
+`RefreshButtons`, replacing its `SetEnabled(false)` in `BuildActions`.
+
+Left open: the keys and the clicks wait for phase 6 (driver `smoke4`).
+
+### Phase 5 — 2026-09-21 — `tests: check each Auto Align undo step restores the stage before`, `gtk: align the whole target from the editor window`
+
+Built: `RetimerWindow.AutoAlign()` (`Compute` + `Apply` on the engine's
+lines, the segments returned), `CanAutoAlign` = `engine.HasBoth`, an **Auto
+Align** button after Time Shift and the `win.auto-align` action phase 4 left
+disabled, both greyed by `RefreshButtons`; a `_status` label between the
+lists and the detail strip showing the `Describe` text of every segment
+joined with `"; "` (`StatusText`, `NoAlignment` when empty), hidden while
+empty, ellipsized with the full text in its tooltip, cleared by `SetFile`.
+One new test in `AutoAlignTests`. Suite: 74 passed.
+
+Choices / deviations: `Apply` pushes an undo step per segment *that moves*:
+its delta is `seg.Offset - applied`, and `ShiftFrom` returns early on a zero
+delta, so a segment repeating the previous offset (a leading zero segment,
+above all) costs no step. The status text is the segment list only, so it
+stays true either way; the plan's Auto Align bullet now says so.
+
+The next phase must know: the status line is a plain `Gtk.Label` under the
+lists, not in the top strip; `StatusText` is its text. `AutoAlign()` on an
+empty window returns no segments and leaves the status alone. A 3-line
+leading block is below `SwitchPenalty` (2.5 matched lines), so `Compute`
+folds it into the next segment and those rows stay gray — not a window bug.
+
+Left open: nothing. Driver `smoke5` covers it; UI tests are phase 6's.
+
+### Phase 6 — 2026-09-21 — `tests: add a GTK UI test harness for the editor window`, `tests: cover the editor window's phases 2 to 5 with UI tests`
+
+Built: `SubsRetimer.UiTests` (xUnit, references Core and Gtk, no
+parallelisation). `Harness/`: `GtkFixture` (one `NonUnique` application on a
+background thread, `Hold()` in `OnActivate`, `RunOnGtk`/`RunOnGtkAsync`),
+`Pump` (idle / frames / settle / until), `Screenshot`
+(`SUBSRETIMER_UITEST_ARTIFACTS`), `UiTestScope` (opens the window, settles
+after every action, screenshots and destroys on dispose, fails on a leaked
+toplevel), `SubtitleFixtures` (SRT reference + ASS target, irregular timings,
+silences, cuts), `Display` + `GtkFactAttribute`. 14 tests, phases 2 to 5.
+
+Choices / deviations: no `GtkSynchronizationContext` was ported —
+`RunWithSynchronizationContext(null)` installs GirCore's own main-loop context
+(measured: an `await` in a GTK lambda continues on the GTK thread; liveness is
+`Gtk.Window.GetToplevels()`). `RetimerWindow`'s three `Choice*` constants
+became `internal` so a test can name them. `RetimerEngine.Undo` sets `IsDirty`
+unconditionally, so the star stays after undoing back to the loaded state: the
+test asserts that, the work order expected it to clear (reported).
+
+The next phase must know: `[GtkFact]`, never `[Fact]` — the display is checked
+once at discovery and the fixture starts no application without one, because
+`gtk_init()` would exit the test process. What changes the engine goes through
+`scope.RunAsync(window, …)`, what may destroy it through `RunIdleAsync`.
+
+Left open: the CI job and the `Makefile` lines are in the report (not editable).
+
+### Lead — 2026-09-21 — after phase 6
+Changed: `RetimerEngine.IsDirty` is now computed from a clean undo depth (commit
+`core: undoing back to the loaded or saved state is clean again`), with two engine tests
+and the UI assertion flipped; CI `ui-tests` job and `make test-ui` added.
+The next phase must know: UI tests exist and must stay green (`make test-ui`); add tests
+for new behaviour there, in the existing files' shape.
+
+### Phase 7 — 2026-09-21 — `gtk: draw the timeline chart under the menu`, `tests: cover the timeline chart with UI tests`
+
+Built: `TimelineLayout` (display-free: clamped `ScaleSeconds` 4..120,
+`ScaleWindow`, `VisibleLines`, `XFor`, `BarRect`, major/minor ticks,
+`TickLabels`/`LabelEvery`) and `TimelineChart` (a `Gtk.Box` with the two zoom
+buttons and a `Gtk.DrawingArea`; `ScaleSeconds`, `ZoomIn`/`ZoomOut(step)`,
+`Layout`, `SetLines`/`SetActive`/`QueueDraw`, `ClickAt(button, x, y)` →
+`Clicked`, `DrawCount`/`LastDrawError`), the 64 px strip between the menu and
+the top strip, and on the window `Chart`, `RefreshChart()` and
+`ChartClick(button)` (left/right walk the target selection and reselect the
+reference, middle = Time Shift). 8 unit + 6 UI tests; suites 84 and 20 passed.
+
+Choices / deviations: the window starts on a whole second and is exactly
+`ScaleSeconds` long (the original rounds both ends with an integer half-range,
+leaving an odd scale narrower than its own ticks); a line spanning the whole
+window is visible (the original dropped it); a bar is never thinner than 1 px;
+the chart owns its widgets instead of subclassing one, as `LineListView` does;
+a draw that throws is caught into `LastDrawError`, since an exception in that
+native callback would end the process. Colours: ground white, ticks `#A9A9A9`,
+labels `#1A1A1A`, bars `#969696` with white text, active `#228B22` / `#4169E1`.
+
+The next phase must know: `Chart.Layout` is null until both sides have a
+selection (only ticks are drawn then); the zoom buttons need the `retimer-zoom`
+class, or the strip grows past 64 px; real mouse delivery to the chart is a
+manual check, as for the lists' keys. Left open: nothing (driver `smoke7`).
+
+### Phase 8 — 2026-09-21 — `gtk: load a subtitle file dropped on either pane`, `tests: cover the dropped-file handler with UI tests`
+
+Built: drops work and were kept. On each pane's box (not the list: the
+scroller is hidden until a file is loaded, so an empty pane could take
+nothing) a `Gtk.DropTarget.New(Gio.FileHelper.GetGType(),
+Gdk.DragAction.Copy)`; `OnDrop` calls `DropFile(side, args.Value)`, which
+resolves the value to a path and goes through the existing `SetFile`, with
+`OpenFile`'s error dialog. Surface: `DropFile(side, value)`,
+`DropTargetFor(side)`. A `KeyTable` line and both pane hints mention drops.
+`Tests/WindowDropTests.cs`, 4 UI tests; suites 84 and 24 passed.
+
+Choices / deviations: the plan's row said drops were impossible; it was
+wrong about `Gio.File` and is corrected. `Gdk.FileList` really is a dead
+end (no `GetFiles` is bound), and there is no `SetGtypes`, so a target
+takes one GType. A drop of several files loads the first.
+
+The next phase must know: `GetFormats()` on a drop target lists its GType
+and no mime type (GirCore binds no `union_*` helper), so it says nothing
+about what a drop matches; that was measured from a file source's own
+formats: `GdkFileList GFile gchararray text/uri-list text/plain;charset=utf-8`.
+No reader for a value's GType is bound either:
+`Value.Transform(new Value(Type.String))` is the probe (false for an object
+value), and it is how `DropFile` also takes text — paths or URIs, one a line.
+
+Left open: a real drag is a manual check, as keys and clicks are.
+
+### Phase 9 — 2026-09-21 — `dist: give the tool the original Subs Re-Timer icon`, `dist: bundle the GTK runtime for a self-contained Windows build`
+
+Built: `assets/` (the original tool's red R: `subsretimer.ico` + 16/32/48 PNGs,
+`README.md` naming the origin and GPL-3), a conditional `<ApplicationIcon>`
+(verified embedded in a cross-published exe), `RetimerWindow.SetIconName` with
+a UI test, `NoDisplay` dropped and the PNGs installed to
+`share/icons/hicolor/<n>x<n>/apps/subsretimer.png`
+by `make install` / removed by `uninstall`. `dist/windows/bundle-gtk.ps1`,
+`smoke.ps1`, `THIRD-PARTY-README.txt`, `make publish-windows`, the `win-x64`
+`RuntimeIdentifiers`, and `SubsRetimer/WindowsRuntimeSetup.cs` called first in
+`Main`. Suites: 84 and 25 passed.
+
+Choices / deviations: `OutputType` stays `Exe` everywhere (ordered), so a
+console window accompanies the editor on Windows. `WindowsRuntimeSetup` is new
+code this phase had to add: without `GSETTINGS_SCHEMA_DIR` and friends
+`gtk_init()` aborts in the bundle. One name, `subsretimer`, ties the desktop
+entry, the window's icon name and the installed PNGs together, and the bundle
+copies the PNGs into its own `share\icons\hicolor`.
+
+The next phase must know: `smoke.ps1` does not open a window — a console
+process's `MainWindowHandle` is its console, so that check would pass with no
+GTK at all; it checks the bundle layout, `--version` and `--auto` instead. GTK
+starting from the bundle is a manual check, and this box has no PowerShell.
+
+Left open: `.github/workflows/release.yml` is in the report (not editable).
+
+### Phase 10 — 2026-09-21 — `docs: describe the editor in the README, changelog and plan`
+
+Built: `README.md`: the status says the editor works on Linux and Windows, a
+"Using the editor" section (opening files, the two lists and their colours,
+detail strip, Time Shift, Auto Align, timeline, saving, close prompt) with a
+key and mouse table copied from `KeyTable`, editor exit codes in the usage
+section, `make test-ui` and `make publish-windows` under Build, desktop entry
+and icons under Install. `CHANGELOG.md`: an Unreleased section, one line per
+user-visible change plus the `IsDirty` fix. `docs/ui-plan.md` is now the
+record: status, phase 10 done, the lead's CI and release workflow noted on
+phases 6 and 9, corrections (Dialogue column, in-place refresh, Quit, the
+timeline and drops in the window map, clean-depth `IsDirty`, the
+`GtkSynchronizationContext` that was not ported), "Known limitations and open
+points" completed and a nine-step manual checklist. No code touched; both
+suites re-run unchanged: 84 passed and 25 passed.
+
+Choices / deviations: the contract bullet claimed `--print-output` flushes
+each path as it is written; that holds for `--auto` only, the editor prints
+them when it closes, and the bullet now says so. subs2srs's README has no
+Windows build section to take wording from (that checkout has no `docs/` and
+no `dist/windows/`), so the MSYS2 note comes from this repository's `Makefile`
+and `bundle-gtk.ps1`.
+
+Left open: `KeyTable` lists no timeline click or zoom button, so Help is
+thinner than the README there. In the report, with two smaller finds.
+
+### Phase 11 — 2026-09-21 — `gtk: ask before a new target replaces unsaved changes`, `cli: print each saved path as the editor writes it`, `gtk: list the timeline's bindings in the key table`, `build: keep the version in one Directory.Build.props`, `docs: record the phase 11 fixes`
+
+Built: (1) `RetimerWindow.OpenPathAsync(side, path)`, the way in for Open and
+for drops, asks `ConfirmReplaceTarget()` before a new **target** replaces
+unsaved changes: `AskAboutUnsavedChanges` again, so `CloseChoice` drives it;
+Cancel and a failed Save keep the target, `_prompting` allows one prompt at a
+time, `LoadPath` loads. 6 UI tests in `WindowReplaceTests.cs`.
+(2) `EditorHost.Run(reference, target, onSaved)`: the window's `PathSaved`
+fires from `SaveTo` for each new path and `RunEditor` passes a writing-and-
+flushing lambda under `--print-output`, while the returned list still sets the
+exit code. `Cli.RunWindow` and the CLI tests take the third argument.
+(3) six timeline lines in `KeyTable`, matched in the README table (18
+entries, compared one by one). (4) `Directory.Build.props` with `Version`,
+`Authors`, `Copyright` and the licence.
+
+Choices / deviations: `SubsRetimer.Core.csproj` carried the same duplicated
+metadata as the two csproj the order named, so all three lost it. A drop
+signal cannot await the prompt: `DropFile` answers true at once for a dirty
+target and loads (or not) after the answer; noted in the plan. `LoadReference`
+/ `LoadTarget` stay prompt-free, they are the tests' setup.
+
+The next phase must know: `-p:Version=9.9.9` on publish still beats the props
+file (checked: exe and Gtk assembly both 9.9.9). Suites: 84 and 31 passed.
+
+Left open: nothing.
+
+### Lead — 2026-09-21 — close-out
+Verified from a clean rebuild: Release build 0 warnings; 84 unit tests, 31 UI tests
+under Xvfb, all 31 skipped without a display; `--version` 0.1.0; `--auto --print-output`
+exit 0 with the path as the last stdout line; editor mode without a display exit 1 with
+the message; subs2srs's 13 launcher tests pass against this build (`SUBSRETIMER_EXE`).
+Not run anywhere yet: the two PowerShell scripts, the release workflow, and the manual
+checklist in `docs/ui-plan.md`.
+
+### Phase 12 — 2026-09-26 — fixes from two code reviews of the branch
+
+Two reviews of `02faedc..ui-editor` gave 30 findings, 23 of them distinct.
+Each was checked against the code, most with a test written to fail on the
+code before the fix (the fix was then broken on purpose to see it fail, and
+put back). All 23 held in substance. Details that did not: a corrupt `.ass`
+does not make the loader throw (it loads with no lines), a failure in
+`activate` did not return 2 (GirCore ended the process with 1), and a hanging
+startup notification was not reproduced.
+
+- Saving: `-o` was ignored by the editor; Save in the prompts went back to the
+  default name after a Save As; Save replaced an existing
+  `<name>_retimed.<ext>` without a word; Save As (and `--output`) wrote ASS
+  text under a `.srt` name. Now `EditorRequest.OutputPath`, a remembered save
+  path, a Replace prompt (`OverwriteChoice` seam) for a default name this
+  window did not write, and `RetimerIO.OutputFormatProblem`, which refuses
+  only the other format's extension.
+- Opening: the unsaved-changes question came before the new file was even
+  checked, a `.mkv` was read whole first, files opened in the window were
+  always read as UTF-8 (the command line's encodings were dropped), and a
+  target read in the wrong encoding was saved with U+FFFD in its text. Now the
+  file is read (in the side's encoding, extension first) before anything is
+  asked, and `SubtitleFile.HasInvalidBytes` makes both modes refuse such a
+  target. The replace prompt names the file it opens; a target dropped while
+  a prompt is up is refused; a close asked for meanwhile runs afterwards.
+- Host: a missing libgtk-4 was reported as "cannot open a display"
+  (reproduced by bind-mounting /dev/null over the library); `EditorProbe`
+  tells the two apart. An exception while the window was built inside
+  `activate` was handled by GirCore's own handler, which prints a stack trace
+  and ends the process (measured) — the exit code was 1 by accident; `Run`
+  now catches it there and rethrows. `--check-editor` asks the question
+  without a window and the Windows smoke test runs it.
+- Desktop entry: named `io.github.jhhr.subsretimer.desktop` after the
+  application id (the Wayland app_id) with `StartupWMClass=subsretimer`, the
+  X11 `WM_CLASS` measured with `xprop`.
+- Lists: `OnUnbind` removed whichever cell was registered at its position.
+  Instrumented, GTK unbinds a cell at a position another cell already holds
+  (53 times in 300 rounds of scrolls and reloads), and 38 of those rounds
+  ended with a row on screen that `Refresh` could not reach; none with the
+  ownership check. The store is filled with one `Splice`.
+- `ClosestIndex` binary-searched a target that a negative Time Shift can
+  leave out of order; it now scans an unsorted list, and `MismatchFlags`
+  searches a sorted view.
+- Timeline: bar text went through Cairo's toy API, which drew Japanese as
+  empty boxes (rendered side by side with Pango to check); now Pango. The zoom
+  buttons ignored the keyboard; `clicked` now does the small step (GTK emits
+  it about 250 ms after an activation).
+- Efficiency: one repaint per Auto Align, none but the title per save.
+  `ProductInfo.Version` replaces the two copies of the version parsing.
+- Tests and build: the no-display test opened the real window where GDK has
+  a display anyway (reproduced under `GDK_BACKEND=broadway`); it is Linux-only,
+  clears the backend and kills a child that outlives 60 s. `UiTestScope`'s
+  leak check replaced the test's own failure; it now reports both and
+  destroys the stray window. CI now runs on `*.props`, `dist/` and the
+  Makefile. `release.yml` expanded the tag name into PowerShell (a tag
+  `v1$(...)` ran the command, checked with pwsh); it now comes through the
+  environment and must look like a version.
+
+Suites: 121 unit tests; 55 UI tests under Xvfb. subs2srs's 13 launcher tests
+pass against this build (`SUBSRETIMER_EXE`).

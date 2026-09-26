@@ -1,15 +1,27 @@
 name: CI
 
+# Everything the build or a test reads: the sources, the project files,
+# Directory.Build.props (the version and the shared properties of every
+# project), and dist/ and the Makefile, which a test checks the desktop entry
+# against.
 on:
   push:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'dist/**'
+      - 'Makefile'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
       - '**/*.cs'
       - '**/*.csproj'
+      - '**/*.props'
+      - '**/*.targets'
+      - 'dist/**'
+      - 'Makefile'
       - '.github/workflows/ci.yml'
 
 jobs:
@@ -22,3 +34,13 @@ jobs:
           dotnet-version: '10.0.x'
       - run: dotnet build SubsRetimer/SubsRetimer.csproj -c Release
       - run: dotnet test SubsRetimer.Tests/SubsRetimer.Tests.csproj -c Release
+  ui-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-1 xvfb
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build SubsRetimer.UiTests/SubsRetimer.UiTests.csproj -c Release
+      - run: GSK_RENDERER=cairo xvfb-run -a dotnet test SubsRetimer.UiTests/SubsRetimer.UiTests.csproj -c Release --no-build
