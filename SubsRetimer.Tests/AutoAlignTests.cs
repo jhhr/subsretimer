@@ -181,10 +181,18 @@ namespace SubsRetimer.Tests
     /// 15% of the lines split in two, and a 0.5 s sound cue in about 15% of
     /// the gaps of 1.5 s or more. Sorted by start, as a loaded file is.
     /// </summary>
-    private static List<RetimerLine> ClosedCaptions(List<RetimerLine> dialogue, (int Index, double Ms)[] cuts, int seed)
+    private static List<RetimerLine> ClosedCaptions(List<RetimerLine> dialogue, (int Index, double Ms)[] cuts, int seed) =>
+      ClosedCaptions(dialogue, cuts, seed, out _);
+
+    /// <summary>
+    /// The same file as the overload above, also giving the index in
+    /// <paramref name="dialogue"/> each returned line came from: both halves of
+    /// a split line and the cue after a line count as that line's.
+    /// </summary>
+    private static List<RetimerLine> ClosedCaptions(List<RetimerLine> dialogue, (int Index, double Ms)[] cuts, int seed, out int[] source)
     {
       var rnd = new Random(seed);
-      var lines = new List<RetimerLine>();
+      var lines = new List<(RetimerLine Line, int Source)>();
       for (int i = 0; i < dialogue.Count; i++)
       {
         double off = cuts.Where(c => i >= c.Index).Sum(c => c.Ms);
@@ -193,20 +201,59 @@ namespace SubsRetimer.Tests
         if (rnd.Next(100) < 15)
         {
           double m = Math.Round((s + e) / 2);
-          lines.Add(new RetimerLine { Start = Ms(s), End = Ms(m), Text = "first half" });
-          lines.Add(new RetimerLine { Start = Ms(m), End = Ms(e), Text = "second half" });
+          lines.Add((new RetimerLine { Start = Ms(s), End = Ms(m), Text = "first half" }, i));
+          lines.Add((new RetimerLine { Start = Ms(m), End = Ms(e), Text = "second half" }, i));
         }
-        else lines.Add(new RetimerLine { Start = Ms(s), End = Ms(e), Text = dialogue[i].Text });
+        else lines.Add((new RetimerLine { Start = Ms(s), End = Ms(e), Text = dialogue[i].Text }, i));
 
         if (i + 1 < dialogue.Count && (dialogue[i + 1].Start - dialogue[i].End).TotalMilliseconds >= 1500 && rnd.Next(100) < 15)
         {
           double cue = dialogue[i].End.TotalMilliseconds + off + 500;
-          lines.Add(new RetimerLine { Start = Ms(cue), End = Ms(cue + 500), Text = "♪" });
+          lines.Add((new RetimerLine { Start = Ms(cue), End = Ms(cue + 500), Text = "♪" }, i));
         }
       }
-      return lines.OrderBy(l => l.Start)
-        .Select((l, k) => new RetimerLine { Start = l.Start, End = l.End, Text = l.Text, RawIndex = k })
+      // OrderBy is stable, so lines with equal starts keep the order they were made in.
+      var sorted = lines.OrderBy(p => p.Line.Start).ToList();
+      source = sorted.Select(p => p.Source).ToArray();
+      return sorted
+        .Select((p, k) => new RetimerLine { Start = p.Line.Start, End = p.Line.End, Text = p.Line.Text, RawIndex = k })
         .ToList();
+    }
+
+    [Theory]
+    [InlineData(1, 59)]
+    [InlineData(1, 36)]
+    [InlineData(41, 141)]
+    public void JitteredClosedCaptions_EveryBlockKeepsItsOwnOffset(int dialogueSeed, int seed)
+    {
+      // Two subtitlers' timings differ by a few hundred ms per line, which
+      // spreads each true offset over several histogram bins. These pairs
+      // once lost the 40-line leading block's -4 s from the candidates, so
+      // the block went tens of seconds off: (1, 59) because -19 s and -27 s
+      // took two slots each, (1, 36) because the -4 s peak ranked below
+      // chance peaks. (41, 141) still needs more than 8 candidates when the
+      // histogram is smoothed.
+      (int Index, double Ms)[] cuts = { (0, 4000.0), (40, 15000.0), (200, 8000.0) };
+      var reference = Fixtures.Dialogue(300, dialogueSeed);
+      var target = ClosedCaptions(Fixtures.Dialogue(300, dialogueSeed), cuts, seed, out int[] source);
+
+      var segs = AutoAlign.Compute(reference, target);
+
+      // Every line gets the offset of the block it came from, give or take
+      // a second. Only a line made from one of the two dialogue lines on
+      // either side of a cut may fall in the neighbouring segment (the
+      // boundary limitation in docs/ui-plan.md, not this test's subject).
+      var wrong = new List<string>();
+      foreach (var seg in segs)
+        for (int k = seg.StartIndex; k < seg.EndIndexExclusive; k++)
+        {
+          double expected = -cuts.Where(c => source[k] >= c.Index).Sum(c => c.Ms);
+          bool nearCut = cuts.Any(c => c.Index > 0 && source[k] >= c.Index - 2 && source[k] <= c.Index + 1);
+          if (Math.Abs(seg.Offset.TotalMilliseconds - expected) > 1000 && !nearCut)
+            wrong.Add(FormattableString.Invariant($"line {k + 1} (dialogue {source[k] + 1}): {seg.Offset.TotalSeconds:0.000} s, expected {expected / 1000:0.000} s"));
+        }
+      Assert.True(wrong.Count == 0,
+        $"{wrong.Count} lines off; segments {string.Join("; ", segs.Select(AutoAlign.Describe))}; first: {string.Join(", ", wrong.Take(3))}");
     }
 
     [Fact]
