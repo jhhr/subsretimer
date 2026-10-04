@@ -563,20 +563,61 @@ Command-line only: `subs2srs.Cli/`, next to `EpisodeList` (which already finds
   end on a two-episode folder (one retimed, one below `--min-match` with its editor
   command). Run it locally with the variable set.
 
-#### 3.4 — `subs2srs-cli season` (spec D, End state)
+#### 3.4 — `subs2srs-cli season`: extract and retime (spec B, C, D, End state)
 
-- `season DIR --project FILE [--track ID] [--min-match F] [--force] [--deck NAME]
-  [--only extract|retime|go] [--dry-run] [--grouping rules|off] [--yes] ...`: extract,
-  retime, then `go --season` in one process with one table (Episode, EN track, Retime,
-  AI, Status, Cards), the editor commands after it, and `go`'s exit codes. `--deck`
-  overrides the project's deck name (for `go` too). `--dry-run` extracts, retimes and
-  asks nothing: it shows the track each episode would use, its JP file and the AI cache
-  state. The table warns when the picked track differs between episodes. Extracted EN
-  files are UTF-8: refuse (or warn) when the project's Subs2 encoding is not UTF-8.
-- Tests: a generated season (mkv files made with mkvmerge from the test video and
-  generated subtitles, JP files beside them) through `season` with a scripted retimer
-  and rules grouping: one episode without a JP file, one below `--min-match` (editor
-  command printed), the rest done; `--only retime`; `--dry-run` writes nothing.
+Split by the lead: this phase is the command and its first two stages; 3.4b adds `go`.
+Read `subs2srs.Cli/CliRunner.cs` (`go`, `--season`, how options, the project, the table
+and exit codes are done), `MkvTracks`, `MkvExtract` and `RetimeStage` (all built for
+this) first; reuse them, do not re-implement.
+
+- `season DIR --project FILE [--track ID] [--min-match F] [--force] [--only
+  extract|retime] [--dry-run] [--yes] [--verbose] ...`, parsed and loaded as `go`
+  does. Per episode (the season's videos, as `go --season` lists them; a video that is
+  not an mkv cannot be extracted: say so): the EN track (`MkvTracks.PickAsync`,
+  `--track` overriding), the extraction (`MkvExtract`), the JP file
+  (`RetimeStage.FindJpFiles` with **every** video), the retime
+  (`RetimeStage.RetimeAsync`, options resolved once). A failed extraction is passed on
+  as `FoundFile.Missing(reason)`. Episodes run one after another; a cancel stops the
+  run (exit 130).
+- Two `.en` files: the picked track's output is the episode's EN file; any other
+  `s2s/<name>.en.<ass|ssa|srt>` is an earlier extraction of another track (made from
+  the mkv, so not hand work) and is deleted. Same name, other track (`--track` changed
+  between runs) cannot be seen from the file: `--force` extracts again as well as
+  retimes again; say so in the help text.
+- `--min-match`: no default until the user's phase 0 run gives a number; not given, it
+  is not passed (the help text says so).
+- One table: Episode, EN track (`3 "English" 312 ev`; the problem when none), Retime
+  (`RetimeOutcome.Column`), then the editor commands under "align by hand, then run
+  again:". A line under the table when the picked track id or name differs between
+  episodes. Progress and per-episode lines go to stderr as `go`'s do.
+- `--only extract` stops after extraction; `--only retime` takes the EN files from
+  `s2s` (`RetimeStage.FindEnFiles`) and does not need MKVToolNix. `--dry-run` extracts,
+  retimes and deletes **nothing** (`RetimeAsync` deletes files: do not call it): it
+  shows the track each episode would use, its JP file (or the problem), and whether its
+  EN file and its retime are there and would be kept.
+- Exit codes for these stages as Design 8: 0 every episode ready, 3 some not, 1 an error
+  before any work (no such folder, no project, no mkv videos), 130 cancelled.
+- Tests: a generated season (mkv files made with `MkvTracksTests.Mux` from generated
+  subtitles, JP files beside them; `[RequiresMkvToolnixFact]`) through `season` with a
+  scripted retimer (`SubsRetimerLauncher.RunnerOverride`): one episode without a JP
+  file, one below `--min-match` (editor command printed), the rest retimed; a re-run
+  keeps everything; `--force`; `--track`; the second `.en` deleted; `--only retime`;
+  `--dry-run` writes and deletes nothing. Parsing and the table without mkvmerge.
+
+#### 3.4b — `subs2srs-cli season`: the cards (spec D, Design 6 and 8, End state)
+
+- After the retime stage, `go --season` in the same process for the episodes whose
+  retime is `Ready` only (the others keep the `.ja` file they may have, an editor fix
+  among them, and are shown skipped with their retime reason). `--deck NAME` overrides
+  the project's deck name (for `go` too), `--grouping rules|off`, `--yes`, and `--only
+  go` (cards alone, from what `s2s` holds, as `go --season` does). One table: Episode,
+  EN track, Retime, AI, Status, Cards; the season TSV line; the editor commands; `go`'s
+  exit codes (Design 8). `--dry-run` adds the AI cache state.
+- The EN files are mkvextract's UTF-8: a season run reads Subs2 as UTF-8 and warns once
+  when the project's Subs2 encoding says otherwise.
+- Tests: the generated season end to end with a scripted retimer and rules grouping
+  (cards for the ready episodes only; exit 3); `--only go`; `--deck`; `--dry-run` with
+  the AI cache state.
 
 #### 3.5 — Documentation
 
