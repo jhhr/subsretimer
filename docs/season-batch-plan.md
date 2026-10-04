@@ -502,8 +502,13 @@ redoing.
    2, the PowerShell script below also makes the cards, with skipped episodes
    left out and the others keeping their numbers.
 3. **subs2srs B, C, D.** The script becomes one command, with automatic track
-   choice and the season table. Draft cut: 3.1 B (track list and pick as pure
-   logic first, then extraction), 3.2 C, 3.3 D, 3.4 documentation.
+   choice and the season table. Work orders in `docs/season-work-orders-subs2srs.md`.
+   - 3.1 B1 + B2: the track list and pick, and finding MKVToolNix in its Windows
+     install folder.
+   - 3.2 B3: extraction.
+   - 3.3 C: the launcher's UTF-8 pipes and the retime stage.
+   - 3.4 D: `subs2srs-cli season`.
+   - 3.5: documentation.
 4. **Optional: E.**
 
 ### Interim PowerShell script (until phase 3; makes the cards with `subs2srs-cli`)
