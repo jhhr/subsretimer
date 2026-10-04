@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.3)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.3b)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -163,6 +163,19 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   under the table; errors exit 1. Season mode sets `VideoClips.Files` (ready episodes)
   before the checks. CLI tests that dry-run put a fake `ffmpeg` in the Tools Directory.
   Unit 607 / 4 skipped, UI 23.
+- Phase 2.3b: `go` runs. `CliRunner.GoAsync`: load, `--grouping rules|off`, refuse AI
+  mode without it (exit 1, before anything is read or written), resolve, `SetUpSeasonRun`
+  (season mode: `Subs[0/1].FilePattern` = the first ready episode's own files,
+  `Files`, `AudioClips.Files` cleared, `EpisodeNumbers`, `EpisodeCountForNames`,
+  `UpdateAudioFilenameFormats`), checks (warnings through `UtilsMsg.showConfirm`, yes
+  only with `--yes`), `StartAsync` with `subs2srs.Cli/ConsoleProgress.cs`, the table
+  (`#`, `Episode`, `Status`, `Cards`) and `season TSV: <path> (k of n episodes); exit
+  N`. `PipelineResult.ImportFile` (from `WorkerSrs.ImportFile`); a Failed or Cancelled
+  run deletes its partly written TSV. Exit 0/3/1/130; no ready episode → table, exit 3,
+  no pipeline. Unit 614 / 4 skipped, UI 23.
+- CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
+  (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
+  caused by this work as far as known; if you see it, report it with the log.
 - Correction to the facts below: only a step that returns null/false used to become
   `OperationCanceledException`; ffmpeg errors throw their own exception.
 
@@ -217,7 +230,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3.
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -326,10 +339,37 @@ Done: 2.1, 2.2, 2.2b, 2.3.
 
 ### 2.4 — The AI pre-pass (spec A6)
 
-- As in spec A6, with one refinement found by the lead: an episode whose failed chunks
-  came from the usage limit (`ClaudeCliProvider.UsageLimit` set) is skipped, not kept
-  with those chunks grouped by the rules; a later run redoes it whole (such results are
-  not cached). Other partial failures keep the episode, with a warning in the table.
+- `go` with snippet mode AI and no `--grouping` no longer refuses: before the pipeline it
+  runs "Combine subs" and "Inactivate lines" for the ready episodes (the same
+  `WorkerSubs` calls `DoWork` makes, on a `WorkerVars` like `StartAsync`'s), then, episode
+  by episode, `AiGrouper.Group` with `AiGroupingOptions.FromSettings()` and records one
+  outcome per episode: `cached` (`FromCache`), `grouped`, `grouped, k of n chunks by
+  the rules` (a warning), or skipped with the reason (`ProviderException`: its message;
+  the usage limit: say so).
+- The usage limit (`ClaudeCliProvider.UsageLimit`, sticky for the process): once it is
+  set, every remaining episode is skipped without asking the provider, and an episode
+  whose failed chunks came from the limit is skipped too, not kept with those chunks
+  grouped by the rules (a re-run redoes it whole: such results are not cached). Find
+  out how to tell "the limit was hit during this episode" (the property before and
+  after the call is the simple way).
+- Then drop the skipped episodes from the line lists, the `Files` arrays and
+  `EpisodeNumbers` (keep `EpisodeCountForNames`), and call `StartAsync(reporter,
+  combinedAll, joins)` with the joins from `AiGrouper.ApplyToLines`, so the pipeline
+  skips its first steps and its own AI step. The *Remove duplicate lines* table spans
+  the episodes that run, as in the GUI.
+- If every episode is skipped by the pre-pass, do not start the pipeline: table, exit 3.
+- The table gains an `AI` column (`cached`, `grouped`, `k/n by rules`, `usage limit`,
+  `failed`, or `-` when grouping is not AI). `--dry-run` fills it with `cached` or
+  `not cached` without asking the model (`AiGrouper.Estimate` reports `Cached`), which
+  needs the same two first steps.
+- Tests (no network, never `claude`): with `FakeChatProvider` over a 3-episode season,
+  all grouped, exit 0, the cards follow the fake's grouping; a cached episode is not
+  asked again (count the fake's requests); with `ClaudeCliProvider.RunnerOverride`
+  scripted to answer episode 1 and hit the usage limit on episode 2, episodes 2 and 3
+  are skipped, no request is made for 3, cards exist for 1 only, exit 3, and a second
+  run with the limit reset and the runner answering does only 2 and 3 (1 from the
+  cache) and rewrites the TSV with all three; a chunk that fails for another reason
+  keeps its episode with the warning. Reset every static hook in `Dispose`.
 
 ### 2.5 — Packaging (spec A8)
 
@@ -501,3 +541,10 @@ message, TSV deleted), none ready, failed check, warning without `--yes`, AI ref
 file touched. Built exe, SIGINT: before the run 130 "cancelled."; during it 130, table with `cancelled`, TSV deleted.
 The next phase must know: 2.4 replaces the AI refusal with the pre-pass and passes `combinedAll`/`joins` to `StartAsync`.
 Left open: on a terminal UtilsMsg's INFO line lands after the last progress text on its line (it writes before any hook runs).
+
+### Lead — 2026-10-04 — after phase 2.3b
+Reviewed `SubsProcessor`/`WorkerSrs` (`ImportFile`) and the CLI's run; Release unit 614 /
+4 skipped and UI 23 on my own run; pushed 08f7e99. The Windows UI hang on b912688 did
+not recur on 3372ae2 (all green); recorded in section 3. Wrote 2.4 out in full. For the
+docs phase: Design 8 should list a failed step under exit 1; the decimal comma in
+"Processing completed in 0,02 minutes" is the pipeline's old `String.Format`.
