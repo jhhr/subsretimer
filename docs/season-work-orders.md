@@ -305,3 +305,29 @@ Reviewed the `CandidateOffsets` diff; 146 unit and 55 UI tests passed on my own 
 (the editor's Auto Align uses the same code). Quality held over the first two phases:
 both showed their key tests failing and reported honestly. Both used about 200k tokens;
 1.2 and 1.3 are plumbing and should need far less.
+
+### Phase 1.2 — 2026-10-04 — 753a90f, e74f258
+Built: `RetimerEngine.TargetMatched()` → `Coverage` (target lines overlapping any reference
+line, of all; none against an empty reference, where `MismatchFlags` flags nothing).
+`SubsRetimer/AutoReport.cs`: records written by System.Text.Json, camelCase, indented, UTF-8
+without BOM, non-ASCII unescaped. `Cli`: `--report PATH`, refused in `Parse` without `--auto`
+or a value. Tests in `CliTests.Report.cs`, a partial of `CliTests`. Shape, abbreviated
+(paths full, doubles unrounded; "no timed lines": `segments` [], the 3 measurements null):
+
+    { "version": 1, "reference": { "path", "lineCount", "encoding" }, "target": { same },
+      "output": "<intended path>", "segments": [ { "firstLine": 41, "lastLine": 120,
+        "offsetMs": -15000, "matchedLines": 80, "lineCount": 80 } ],
+      "referenceCoverage": { "covered", "counted", "share" },
+      "targetMatched": { "matched", "lineCount", "share" },
+      "averageMismatchSeconds": { "before": { "all", "matched" }, "after": { same } },
+      "minMatch": 0.9 | null, "exitCode": 0 | 2, "saved": "<path>" | null,
+      "reason": null | "below min-match" | "no timed lines" }
+
+Order in `RunAuto`: both files given, then the stale report deleted (exit 1 there for a
+missing folder, or a path equal to REFERENCE, TARGET or the output), then the loads. The
+report follows the save and its stderr line, before stdout. A failed write: exit 1, stdout
+empty, a half-written report removed, the saved subtitle file stays (not tested).
+Choices / deviations: the same-file refusal is mine (the delete would destroy TARGET).
+`--auto` with one file stays exit 1 before the delete, a command-line error.
+The next phase must know: `Program.cs` untouched. Left open: `--report ""` fails in
+`Path.GetFullPath` (exit 1, no usage text).
