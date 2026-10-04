@@ -134,6 +134,11 @@ throwaway scripts in files in the scratchpad.
   first, then `RemoveStaleReport` (refuses a report path equal to an input or the output,
   and a missing folder), then loads. `reason`: null, `"below min-match"`, `"no timed
   lines"`. Tests in `CliTests.Report.cs` (`CliTests` is `partial`). 157 unit tests pass.
+- Phase 1.3: `Program.Main` swaps in `Program.Utf8Writer` (UTF-8, no BOM, `AutoFlush`) via
+  `Console.SetOut`/`SetError` for each redirected stream. `CliTests.RunProcess` reads
+  stdout as raw bytes (a BOM would show) and stderr as UTF-8. The lead added the
+  `windows-tests` job to `ci.yml` and a Japanese-names check (section 5) to
+  `dist/windows/smoke.ps1`. 159 unit tests pass.
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, RawIndex, ...), `SubtitleFile` +
   `RetimerIO` (load, save with the original encoding/BOM/newline, `DefaultOutputPath`,
   `OutputFormatProblem`), `RetimerEngine` (`ReferenceLines`, `TargetLines`, `HasBoth`,
@@ -157,7 +162,7 @@ throwaway scripts in files in the scratchpad.
 
 ## 4. Phases
 
-Done: 1.1, 1.1b, 1.2.
+Done: 1.1, 1.1b, 1.2, 1.3.
 
 ### 1.1 — Coverage and `--min-match` (spec S1)
 
@@ -367,3 +372,10 @@ survives through Cli's own Flush). 159 unit tests pass.
 The next phase must know: redirected stdout/stderr are UTF-8 without BOM, lines end in
 `Environment.NewLine` (CRLF on Windows), for the README contract.
 Left open: nothing run on Windows; the code-page failure there awaits the windows-latest job.
+
+### Lead — 2026-10-04 — after phase 1.3
+Reviewed `Program.cs` and the test helper; 159 passed on my own run. Added the
+`windows-tests` CI job (bc013aa) and the smoke test's Japanese pair (566ca47). Checked
+the smoke section under pwsh 7.6 with a wrapper in place of the exe and
+`LC_ALL=en_US.ISO-8859-1`: it passed with this branch's build and failed with the build
+from before eadb3e4.
