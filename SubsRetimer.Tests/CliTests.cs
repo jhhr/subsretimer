@@ -642,7 +642,7 @@ namespace SubsRetimer.Tests
       var r = RunProcess(new[] { "--auto", "--print-output", rf, tg });
 
       Assert.Equal(0, r.Code);
-      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + "\n", r.Out);
+      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + Environment.NewLine, r.Out);
       Assert.Contains("saved", r.Err);
     }
 
@@ -657,6 +657,9 @@ namespace SubsRetimer.Tests
       {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
+        // Both streams are decoded as UTF-8, as subs2srs reads them, not in
+        // whatever this machine's console uses; stdout below, by hand.
+        StandardErrorEncoding = Utf8,
         UseShellExecute = false
       };
       psi.ArgumentList.Add(exe);
@@ -664,7 +667,10 @@ namespace SubsRetimer.Tests
       configure?.Invoke(psi);
 
       using var p = Process.Start(psi)!;
-      var stdout = p.StandardOutput.ReadToEndAsync();
+      // stdout as bytes: a StreamReader drops a leading byte order mark
+      // without a word, and the contract has none. GetString keeps one, as
+      // U+FEFF before the first path, where an exact comparison sees it.
+      var stdout = ReadAllBytesAsync(p.StandardOutput.BaseStream);
       var stderr = p.StandardError.ReadToEndAsync();
       // A child that opened a window after all would wait for a user forever;
       // end it and fail instead of hanging the test run.
@@ -675,8 +681,17 @@ namespace SubsRetimer.Tests
         Assert.Fail($"subsretimer {string.Join(" ", args)} did not exit within {ProcessTimeout}");
       }
       p.WaitForExit();   // drains the redirected streams
-      return (p.ExitCode, stdout.Result, stderr.Result);
+      return (p.ExitCode, Utf8.GetString(stdout.Result), stderr.Result);
     }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    {
+      using var bytes = new MemoryStream();
+      await stream.CopyToAsync(bytes);
+      return bytes.ToArray();
+    }
+
+    private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
   }
