@@ -14,7 +14,10 @@
        reads the bundled GSettings schemas and aborts without them,
     4. "subsretimer.exe --auto --print-output REF TARGET" on two fixture files this
        script writes itself exits 0, prints the saved path on stdout and nothing else,
-       and the saved file carries the reference's timings with the target's text.
+       and the saved file carries the reference's timings with the target's text,
+    5. the same with a Japanese folder and Japanese file names: the saved path comes
+       back on stdout intact, which needs subsretimer to write redirected output as
+       UTF-8 whatever the console's code page (subs2srs reads it as UTF-8).
 
   The editor window itself is deliberately not opened. subsretimer is a console
   executable (its stdout is part of the contract with subs2srs), so a started process's
@@ -59,7 +62,8 @@ $env:GSK_RENDERER = 'cairo'
 
 # Run the executable and return its exit code with stdout and stderr kept apart: the
 # stdout-carries-only-saved-paths contract is one of the things under test. Arguments
-# that are paths must arrive quoted, %TEMP% can contain spaces.
+# that are paths must arrive quoted, %TEMP% can contain spaces. Redirected output is
+# UTF-8, and Windows PowerShell 5.1 reads a file in the ANSI code page unless told.
 function Invoke-Exe([string[]]$arguments) {
     $outFile = [IO.Path]::GetTempFileName()
     $errFile = [IO.Path]::GetTempFileName()
@@ -68,8 +72,8 @@ function Invoke-Exe([string[]]$arguments) {
             -RedirectStandardOutput $outFile -RedirectStandardError $errFile
         return [pscustomobject]@{
             ExitCode = $p.ExitCode
-            StdOut   = @(Get-Content $outFile)
-            StdErr   = @(Get-Content $errFile)
+            StdOut   = @(Get-Content $outFile -Encoding UTF8)
+            StdErr   = @(Get-Content $errFile -Encoding UTF8)
         }
     }
     finally { Remove-Item $outFile, $errFile -Force -ErrorAction SilentlyContinue }
@@ -187,6 +191,32 @@ try {
     # ... and the text must still be the target's.
     if ($saved -notmatch 'Target one') { throw 'the re-timed file lost the target text' }
     Write-Host ("auto-align      : ok, wrote {0}" -f $expected)
+
+    # ── 5. Japanese folder and file names ─────────────────────────────────────
+    # Same pair, same check of stdout. The names are built from code points: Windows
+    # PowerShell 5.1 reads a script file without a BOM in the ANSI code page, so this
+    # file stays ASCII outside comments. Folder "jimaku" (subtitles), files "sansho"
+    # (reference) and "taisho" (target).
+    $jaDir = Join-Path $work (-join [char[]](0x5B57, 0x5E55))
+    $jaTargetName = -join [char[]](0x5BFE, 0x8C61)
+    $jaReferencePath = Join-Path $jaDir ((-join [char[]](0x53C2, 0x7167)) + '.srt')
+    $jaTargetPath = Join-Path $jaDir ($jaTargetName + '.srt')
+    $jaExpected = Join-Path $jaDir ($jaTargetName + '_retimed.srt')
+    New-Item -ItemType Directory -Force -Path $jaDir | Out-Null
+    Set-Content -LiteralPath $jaReferencePath -Value $referenceSrt -Encoding ascii
+    Set-Content -LiteralPath $jaTargetPath -Value $targetSrt -Encoding ascii
+
+    $r = Invoke-Exe @('--auto', '--print-output', (Quote $jaReferencePath), (Quote $jaTargetPath))
+    foreach ($line in $r.StdErr) { Write-Host "    $line" }
+    if ($r.ExitCode -ne 0) { throw "--auto on Japanese names exited $($r.ExitCode), expected 0" }
+    if (-not (Test-Path -LiteralPath $jaExpected)) { throw "--auto wrote no $jaExpected" }
+
+    $printed = @($r.StdOut | Where-Object { $_ -match '\S' })
+    if ($printed.Count -ne 1) { throw "stdout carried $($printed.Count) lines, expected only the saved path" }
+    if ($printed[0] -cne $jaExpected) {
+        throw "stdout printed '$($printed[0])', expected '$jaExpected': redirected output is not UTF-8"
+    }
+    Write-Host 'japanese names  : ok, the saved path came back intact on stdout'
 }
 finally {
     if ($KeepWorkDir) { Write-Host ("work dir        : {0}" -f $work) }
