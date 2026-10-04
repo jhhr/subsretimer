@@ -1083,3 +1083,29 @@ choices (EN extracted without a JP file; no deletes without a pick; tables per m
 the dry run's columns). The agent left an empty `/dummy` outside the repositories; its
 delete was blocked and is the user's call. 3.4b's work order gained the facts about
 `GoAsync`.
+
+### Phase 3.4b — 2026-10-04 — 0a3803e
+Built: `CliRunner.GoAsync` split: `ApplyCardOptions` (`--grouping`, `--deck`), `PlanGo` (dry run: set-up, cached column, checks →
+`GoPlan`), `RunGoAsync(list, yes, stderr, token)` → `GoRun(List, Pre, Result, ExitCode)` with `Cells()` (`GoCells(Ai, Status,
+Cards)` per episode), `TsvLine(exit)` and `Stopped` (a stop before the pipeline); `PrintTable(GoRun)`. go's output unchanged (its
+tests untouched, green). `EpisodeList.FromSeason(dir, videos, settings)`, `OfSeason`. `SeasonCommand`: `SetUpCards` (audio from
+audio files refused up front; card options; Subs2 = utf-8, one warning when the project says otherwise, `--only go` and dry runs
+too); after the loop `ForGo` (Ready retimes: Subs1 its `OutputPath`, Subs2 the EN file; others skipped with the retime's column,
+`retime failed: ..`; numbers `i + start`), or for `--only go` `FromSeason` over the same videos; a `CliException` or cancel from
+`RunGoAsync` prints the table (`not made`/`cancelled`) and rethrows. Columns + AI, Status, Cards (dry run + AI; `--only go` dry run
+AI, Status); the last line is go's TSV line. `CliOptions`: `--deck` (go and season, empty refused), `--only go`, `--grouping` on
+season; refused: `--track`/`--min-match`/`--force` with `--only go`, `--grouping`/`--deck` with `--only extract|retime`.
+Choices: go's list is built from the retime outcomes, not re-read from s2s, so a leftover `.ja` of an episode not Ready (JP file
+gone, no EN pick) makes no cards; `--only go` takes what s2s holds. Status of such an episode is `skipped: <retime column>` (repeats
+the Retime cell, as go's AI-skipped rows repeat the AI cell). The dry run's AI cell is `cached`/`not cached` only where the retime
+would be kept (`-` for "to retime": its file is not there yet); it also runs go's checks (exit 1 on an error, as go's dry run). A
+cancel during extract/retime shows every episode's Status `cancelled`. go's checks run after extract and retime: a missing deck or
+ffmpeg is found only then (the work is kept for the re-run); an up-front check is possible.
+Tests: `CliSeasonTests` +2 facts, usage rows +6 net; the full-run tests changed because the behaviour did (go runs): the project
+is TSV-only with rules, the scripted retimer writes the JP file as its output, the editor fix is a valid SRT. `CliTests` +1 (`go
+--deck`). Seen failing: go given what s2s holds (3 tests: leftover `.ja`, `--track 7`, AI cache), no UTF-8 Subs2 (`Tschüss.`
+missing), `--deck` ignored (2). Fragile: keep-if-newer compares mtimes; a re-run test right after a run needs `SetBack` (EN and
+retime in one clock tick made episode 4 "to retime" once). Untested: a cancel inside go's pre-pass in season (same catch as the
+tested failed check). By hand: the built console on a real two-episode muxed season with the real subsretimer and ffmpeg (audio,
+snapshots, Shift-JIS Subs2 project, `--deck`): retimed, 5 cards, umlauts intact, exit 3.
+Unit 818 passed / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 814 / 8 skipped unset (Release). No UI file, no packages.
