@@ -11,7 +11,7 @@ using Xunit;
 
 namespace SubsRetimer.Tests
 {
-  public class CliTests
+  public partial class CliTests
   {
     private static (int Code, string Out, string Err) Run(params string[] args)
     {
