@@ -264,3 +264,25 @@ Template:
     Choices / deviations: ...
     The next phase must know: ...
     Left open: ...
+
+### Phase 2.1 — 2026-10-04 — 4bd733a, 447d195, 2154efc
+Built: `ProjectFiles.Resolve()` (GTK-free: patterns into `Files`, cut to End #, `UpdateAudioFilenameFormats`),
+called at the end of `SaveSettings`' try; `ProjectFiles.EpisodeLimit`. A UI test written before the move pins
+`SaveSettings`' arrays (`PatternSet` harness); `ProjectFilesTests` holds `Resolve` to them. `subs2srs.Cli`
+(assembly `subs2srs-cli`, RIDs linux-x64;win-x64 as the app, lock file): `Program`, `CliRunner.RunAsync(args,
+stdout, stderr, token)`, `CliOptions`, `EpisodeList` (`ForSeason` pure, `FromSeason`, `FromPatterns`/`Pair`),
+`TextTable`. `PrefIO.ReadFile` and `JsonPath` (internal). Tests: `EpisodeListTests`, `CliTests`.
+Choices / deviations: `InternalsVisibleTo` must name the assembly, `subs2srs-cli`. Tag match: whole name,
+OrdinalIgnoreCase. All skipped is exit 3. `go` without `--dry-run` exits 1 before loading anything. Pattern
+mode counts videos only when used (audio from video, snapshots, animated, clips) and audio files when audio
+comes from files; `--season` refuses audio from files. Preferences: `PrefIO.read` writes a missing file, so
+the CLI reads with `ReadFile` (any file name for `--prefs`). Console: redirected streams get UTF-8 writers;
+when either stream is a console, `OutputEncoding` = UTF-8 and the old code page is restored on exit.
+The next phase must know: the pipeline reads `Subs[1].FilePattern != ""` (WorkerSrs.cs:259, 344;
+WorkerSubs.cs:707) and vobsub checks on both patterns (WorkerSubs.cs:66, 723), so a season run must set the
+patterns, not only `Files`. WorkerAudio.cs:67-68 indexes `AudioClips.Files[ep-1]` even with audio from the
+video: a leftover audio pattern with fewer files than episodes crashes (GUI too); clear `AudioClips.Files` in
+season runs. Season mode must call `UpdateAudioFilenameFormats()` itself (pattern mode gets it from
+`Resolve`). The project's Subs2 encoding applies to the `.en` file. `--yes`/`--verbose` are wired, unobserved.
+Left open: one Release UI run failed `PreviewGroupingScrollTests` ("leaked MainWindow", which hides the body's
+failure); not reproduced in 9 more runs; cause unknown. CI restore and Makefile lines: in the report.

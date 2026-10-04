@@ -295,9 +295,10 @@ documented `--auto` behaviour.
   - It reads the GUI's `preferences.json`, so the tool directory, the `claude`
     model settings and the **AI cache** are shared, and a later Preview of an
     episode reuses its answer for free. It never writes preferences.
-  - It calls `UtilsCommon.RegisterEncodings()` and sets
+  - It calls `UtilsCommon.RegisterEncodings()`. Redirected stdout and stderr
+    are written as UTF-8 without a BOM; when either is a console it sets
     `Console.OutputEncoding = UTF8`, so Japanese file names print correctly on
-    Windows.
+    Windows, and restores the console's code page on exit.
   - `UtilsMsg` hooks go to stderr. A confirm answers no unless `--yes`.
   - `--verbose` turns on `Logger.Instance.Echo`. Ctrl+C cancels through a token.
 - **A2. Episode list.** Two sources, one resolved list of
@@ -311,11 +312,13 @@ documented `--auto` behaviour.
     side. Today a missing Subs2 or video file ends in an `IndexOutOfRange`
     part-way through (`WorkerSubs.cs:128`, `WorkerAudio.cs:109`, …).
 
-  The pattern expansion, episode-range truncation, audio-stream choice and
+  The pattern expansion, episode-range truncation and
   `UpdateAudioFilenameFormats()` move out of `MainWindow.SaveSettings`
-  (`MainWindow.cs:1129-1277`) into a GTK-free function the GUI also calls.
-  `ProjectIO.Load` leaves every `Files` array empty, so the CLI cannot run
-  without that step.
+  (`MainWindow.cs:1129-1277`) into a GTK-free function the GUI also calls
+  (`ProjectFiles.Resolve`). The audio-stream choice stays in `SaveSettings`:
+  it reads the window's stream list; the project file carries
+  `VideoClips.AudioStream`. `ProjectIO.Load` leaves every `Files` array
+  empty, so the CLI cannot run without that step.
 - **A3. Checks before starting**, shared with the GUI's `GoAsync`, which today
   only checks that three text boxes are not empty:
   - The output dir can be created and written, and the deck name is not empty.
@@ -487,7 +490,8 @@ redoing.
    `docs/season-work-orders-subs2srs.md`; branch `claude/hopeful-babbage-vrca6w`
    in subs2srs.
    - 2.1 A1 + A2: the project and the episode list (`go --dry-run`). The lead
-     adds the CI restore line and the `Makefile` entries.
+     adds the CI restore line and the `Makefile` entries. Done 2026-10-04
+     (4bd733a, 447d195, 2154efc).
    - 2.2 A4 + A5: episode numbers and the run result.
    - 2.3 A3 + A7: the checks, `go` running the pipeline, and the table.
    - 2.4 A6: the AI pre-pass.
