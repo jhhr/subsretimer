@@ -8,7 +8,7 @@
 - Timeline chart under the menu: the seconds around the selected target line, with zoom buttons and the original's click behaviour.
 - A subtitle file dropped on either pane is loaded as that side's file.
 - The tool now carries the original Subs Re-Timer icon and its desktop entry appears in application menus; `make install` installs both.
-- Windows: `make publish-windows` produces a self-contained `win-x64` build with the GTK 4 runtime bundled, and a `v*` tag publishes it as a zip.
+- Windows: `make publish-windows` produces a self-contained `win-x64` build with the GTK 4 runtime bundled, and a `v*` tag publishes it as a zip. Its scripts run under PowerShell 7 when it is installed and under Windows PowerShell 5.1 otherwise.
 - With `--print-output` the editor prints each saved path the moment the file is written, as `--auto` does, instead of only when the window closes.
 - `--check-editor` says whether the editor can start here (GTK 4 loads, a display opens) without opening it; the Windows release's smoke test now runs it, so a bundle whose GTK does not start fails the release.
 

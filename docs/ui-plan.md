@@ -310,7 +310,10 @@ checklist below:
   `MainWindowHandle` is its console, so that check would pass with no GTK at
   all. Neither PowerShell script has run on Windows. In phase 12 `smoke.ps1`
   was parsed by PowerShell 7 and its steps after the layout check ran on
-  Linux against the Linux build; `bundle-gtk.ps1` has never run.
+  Linux against the Linux build; `bundle-gtk.ps1` has never run. Both pass
+  PSScriptAnalyzer's compatibility rules for Windows PowerShell 5.1 (syntax,
+  commands and parameters, .NET types), which `make publish-windows` uses
+  when PowerShell 7 is not installed.
 - The Wayland side of the desktop entry. On X11 the window's `WM_CLASS` is
   `subsretimer` (measured with `xprop` under Xvfb), which `StartupWMClass`
   names; on Wayland GTK 4 sends the application id as the app_id, which the

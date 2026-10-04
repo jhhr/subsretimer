@@ -17,7 +17,14 @@ TESTPROJ  = SubsRetimer.Tests/SubsRetimer.Tests.csproj
 UITESTPROJ = SubsRetimer.UiTests/SubsRetimer.UiTests.csproj
 WINDIR    = out/win-x64
 MSYS2     ?= C:/msys64
-PWSH      ?= pwsh   # use PWSH=powershell on a machine without PowerShell 7
+# The Windows scripts run under PowerShell 7 (pwsh) when it is installed and
+# under Windows PowerShell 5.1, which every Windows has, otherwise; PWSH=
+# picks one. -ExecutionPolicy Bypass because Windows PowerShell's default
+# policy refuses to run any script file; it lasts only for that one run.
+ifndef PWSH
+PWSH     := $(if $(shell command -v pwsh 2>/dev/null),pwsh,powershell)
+endif
+PSRUN     = $(PWSH) -NoProfile -ExecutionPolicy Bypass -File
 
 .PHONY: build test test-ui publish-windows install uninstall clean
 
@@ -35,8 +42,8 @@ test-ui:
 # Run from PowerShell/Git Bash on Windows with mingw-w64-ucrt-x86_64-{gtk4,ntldd} installed.
 publish-windows:
 	dotnet publish $(PROJ) -c Release -r win-x64 --self-contained true -o $(WINDIR)
-	$(PWSH) -NoProfile -File dist/windows/bundle-gtk.ps1 -Msys2Root "$(MSYS2)" -PublishDir "$(WINDIR)"
-	$(PWSH) -NoProfile -File dist/windows/smoke.ps1 -PublishDir "$(WINDIR)"
+	$(PSRUN) dist/windows/bundle-gtk.ps1 -Msys2Root "$(MSYS2)" -PublishDir "$(WINDIR)"
+	$(PSRUN) dist/windows/smoke.ps1 -PublishDir "$(WINDIR)"
 
 # The icon is installed under the name the desktop file and the window ask for
 # ("subsretimer"); updating the icon cache is left to the packager.

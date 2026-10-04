@@ -217,8 +217,9 @@ the GTK 4 runtime in beside it, so the result runs on a machine with no GTK
 installed. GTK comes from an MSYS2 UCRT64 installation with
 `mingw-w64-ucrt-x86_64-gtk4` and `mingw-w64-ucrt-x86_64-ntldd` in it,
 `C:/msys64` unless `MSYS2=` says otherwise. The two bundling scripts in
-`dist/windows/` are PowerShell; on a machine without PowerShell 7 run
-`make publish-windows PWSH=powershell`. For a plain `dotnet run` on Windows,
+`dist/windows/` are PowerShell: they run under PowerShell 7 (`pwsh`) when it
+is installed and under the Windows PowerShell 5.1 every Windows has
+otherwise; `PWSH=` picks one. For a plain `dotnet run` on Windows,
 put `C:\msys64\ucrt64\bin` on `PATH` instead: GTK is then found there.
 
 ## Install
