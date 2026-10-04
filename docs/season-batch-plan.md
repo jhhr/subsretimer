@@ -1,9 +1,11 @@
 # Season batch: extract, retime and make cards without the GUI
 
 Status: revised 2026-09-28 with the user's answers (recorded under "Decisions
-from your answers"). Remaining points are at the end. Being built since
-2026-10-04 by phase agents, from the work orders in `docs/season-work-orders.md`;
-phase 1 first (the user's phase 0 runs alongside).
+from your answers"). Remaining points are at the end. Built by phase agents
+since 2026-10-04, from the work orders in `docs/season-work-orders.md`.
+Phase 1 (subsretimer, S1 to S4) is done (2026-10-04). Phase 2 (subs2srs A) is
+next; its work orders are to be written in that repository's `docs/`. The
+user's phase 0 runs alongside; its numbers set the `--min-match` threshold.
 
 Builds on the editor branch (`ui-editor`, PR #1), merged into `main` on
 2026-10-04. Revised then for what that branch already provides:
@@ -43,7 +45,7 @@ get their cards, with their real episode numbers.
 | Step | Today | Verdict |
 | --- | --- | --- |
 | Extract EN | `mkvextract <mkv> tracks <id>:<out>` works by hand. Checked 2026-09-28 on mkvtoolnix 82: it wrote a UTF-8 SRT with a BOM. The subs2srs Extract dialog extracts *every* subtitle track into a folder you pick, and ignores extraction errors. | Works by hand. |
-| Retime | `subsretimer --auto --output OUT -- EN JP` works per pair. An explicit `--output` overwrites, so re-runs work. Checked on an EN track extracted from an mkv with a 90 s cut: it found −90.000 s, with 2 of 2 lines matched. A JP file that does not decode in the given encoding is refused with exit 1, not saved garbled. Without `--auto` the same command opens the editor, whose Save writes to `--output`. | Works. The Windows bundle builds and passes its smoke test (Windows 10, 2026-10-04), but no release tag has been pushed, so no zip is published yet. Never tried on a real episode (phase 0). Nothing a script can use to tell a bad alignment from a good one. |
+| Retime | `subsretimer --auto --output OUT -- EN JP` works per pair. An explicit `--output` overwrites, so re-runs work. Checked on an EN track extracted from an mkv with a 90 s cut: it found −90.000 s, with 2 of 2 lines matched. A JP file that does not decode in the given encoding is refused with exit 1, not saved garbled. Without `--auto` the same command opens the editor, whose Save writes to `--output`. | Works. The Windows bundle builds and passes its smoke test (Windows 10, 2026-10-04), but no release tag has been pushed, so no zip is published yet. Never tried on a real episode (phase 0). Since phase 1 a script can tell a pair that aligned badly as a whole from a good one, by `--min-match` and `--report` (S1, S2); the threshold is still to come from phase 0. |
 | Cards | subs2srs has **no command line**. `Program.Main` ignores `args` and always starts GTK, and on Windows the exe is a `WinExe` with no console. It also cannot leave an episode out: the episode number is always the position in the sorted file list plus the start number. | **Blocker.** |
 
 ## Decisions from your answers (2026-09-28)
@@ -143,11 +145,13 @@ align by hand, then run again:
 
 ## Changes in subsretimer (this repository)
 
-- **S1. `--min-match FRACTION`**, for `--auto` only.
-  - After alignment it computes the **reference coverage**: the share of
-    *reference* lines of which the retimed target lines, together, cover at
-    least half the duration. A reference line with no duration is left out of
-    the count.
+- **S1. `--min-match FRACTION`**, for `--auto` only. Built in phase 1.1.
+  - After alignment it computes the **reference coverage**
+    (`RetimerEngine.ReferenceCoverage()`, from the per-line
+    `RetimerEngine.CoverageFlags`): the share of *reference* lines of which the
+    retimed target lines, together, cover at least half the duration. A
+    reference line with no duration is left out of the count. Neither list
+    needs to be in start order; after `AutoAlign.Apply` the target may not be.
   - "Together" means the union of the target lines: an EN line that the JP file
     splits in two is still covered.
   - "At least half" rather than "any overlap" (`MismatchFlags`): with any
@@ -160,12 +164,18 @@ align by hand, then run again:
   - The reference is the clean EN track. Measured that way, sound cues and
     speaker-only lines in a CC JP file cannot pull the number down, which they
     would if it counted target lines.
-  - stderr always prints the coverage after the segments, so phase 0 can read
-    it without a threshold.
-  - Below the threshold nothing is saved, stderr says why, and the exit code is
-    `2` ("nothing saved"). That code already exists in the contract, and the
-    subs2srs launcher maps it to `NothingSaved`. An existing `--output` file is
-    left as it is.
+  - stderr always prints the coverage after the segments and the average
+    mismatch, as `reference covered: 97% (291 of 300 lines)` with the
+    percentage rounded down, so phase 0 can read it without a threshold.
+  - FRACTION is read in the invariant culture (`0.85`; `0,85` is refused). A
+    value outside 0 to 1, or the option without `--auto`, is refused with exit
+    `1` and the usage text.
+  - Below the threshold (compared with the exact share, not the rounded
+    percentage) nothing is saved, stderr says why
+    (`subsretimer: reference covered 67% is below --min-match 0.9; nothing saved`),
+    and the exit code is `2` ("nothing saved"). That code already exists in
+    the contract, and the subs2srs launcher maps it to `NothingSaved`. An
+    existing `--output` file is left as it is.
   - Off by default (`0`), so nothing changes for current callers. The threshold
     comes from phase 0.
   - It catches an episode that aligned badly as a whole, not a few misplaced
@@ -173,20 +183,37 @@ align by hand, then run again:
     (about three lines) into the next segment, so a short intro before a cut
     can end up early while coverage barely moves. This is a known Core
     limitation, listed in `docs/ui-plan.md` under "Known limitations".
-- **S2. `--report PATH`**, for `--auto` only: a JSON file, written for exit 0
-  and exit 2, with:
-  - the input paths and line counts;
+- **S2. `--report PATH`**, for `--auto` only (refused with exit `1`
+  otherwise). Built in phase 1.2 (`SubsRetimer/AutoReport.cs`): a JSON file, written
+  for exit 0 and exit 2, with:
+  - `version` `1`, to be raised only when a field changes meaning or goes
+    away;
+  - the input paths, line counts and encodings (`reference`, `target`), and
+    the `output` path the run saves to or would have;
   - the segments (first and last line, 1-based as on stderr, offset in ms,
-    matched lines);
+    matched lines, line count);
   - the reference coverage (S1) and the share of target lines matched (those
-    that overlap a reference line at all, the editor's non-gray rows);
-  - the average mismatch before and after;
-  - the `--min-match` threshold, the exit code, and the saved path or the
-    reason nothing was saved.
+    that overlap a reference line at all, the editor's non-gray rows:
+    `RetimerEngine.TargetMatched()`);
+  - the average mismatch before and after, over all lines and over the
+    matched ones;
+  - the `--min-match` threshold (null when not given), the exit code, the
+    saved path (null when nothing was saved) and `reason`: null,
+    `"below min-match"` or `"no timed lines"`. With no timed lines `segments`
+    is `[]` and the three measurements are null.
 
-  A report at that path from an earlier run is deleted first, so exit 1 never
-  leaves one behind. subs2srs reads it for the season table instead of parsing
-  stderr, which the contract keeps for humans.
+  UTF-8 without a BOM, camelCase, indented, every path in full, Japanese left
+  unescaped; README "Contract for other programs" lists the fields. A report
+  at that path from an earlier run is deleted before the inputs are read, so
+  a run that fails after that (exit 1) leaves none. An error in the command
+  line itself (an unknown option, `--auto` with one file) exits 1 before the
+  delete and leaves the old file, so a caller reads the report only after
+  exit 0 or 2. A report path that names REFERENCE, TARGET or the output is
+  refused (exit 1) instead of deleted, and so is one whose folder does not
+  exist. On exit 0 the report is written after the save and before the path
+  goes to stdout; if it cannot be written, the run exits 1 with nothing on
+  stdout, and the saved subtitle file stays. subs2srs reads the report for the
+  season table instead of parsing stderr, which the contract keeps for humans.
 - **S3. Windows: what the editor branch left for a batch.** The zip itself is
   done there:
   - `.github/workflows/release.yml` publishes `win-x64` self-contained on `v*`
@@ -195,14 +222,12 @@ align by hand, then run again:
   - `make publish-windows` builds the same thing locally.
   - `OutputType` is `Exe` on Windows too, so `--auto` reaches a real stdout.
 
-  Left:
-  - **Push a `v*` tag** after the merge, so a zip is published. There is no tag
-    yet.
-  - A `windows-latest` unit-test job in `ci.yml`. Today the only Windows run is
-    the smoke test, at release time.
-    `CliTests.RealProcess_HonoursStdoutContract` expected the path followed
-    by `"\n"`, which fails there: `WriteLine` ends lines with `"\r\n"` on
-    Windows. Since phase 1.3 it compares against `Environment.NewLine`. The
+  Built in phase 1.3:
+  - A `windows-tests` job in `ci.yml` runs the unit tests on `windows-latest`
+    (bc013aa, by the lead); before it the only Windows run was the smoke test,
+    at release time. `CliTests.RealProcess_HonoursStdoutContract` expected the
+    path followed by `"\n"`, which fails there: `WriteLine` ends lines with
+    `"\r\n"` on Windows. It now compares against `Environment.NewLine`. The
     subs2srs launcher trims every line, so the contract itself holds.
   - **Japanese paths on stdout.** A saved path printed with `--print-output`
     must reach subs2srs intact.
@@ -211,26 +236,46 @@ align by hand, then run again:
       Elsewhere it takes the charset in `LC_ALL`, `LC_MESSAGES` or `LANG`:
       with `LC_ALL=en_US.ISO-8859-1` a redirected Japanese path came out as
       `?` on Linux too (checked 2026-10-04, before phase 1.3).
-    - Write UTF-8 whenever stdout is redirected, so the path does not depend on
-      how the tool was started. The same for stderr, which carries file names
-      in its messages and which subs2srs shows. C2 makes the reading side
-      UTF-8.
     - The subs2srs launcher starts subsretimer with `CreateNoWindow = true`,
-      which gives the child a console without a window, so today it writes in
-      the console's code page there.
-    - Do not set `Console.OutputEncoding` for this: that changes the code page
-      of the console the tool shares with its parent.
-    - Pin it with a unit test that saves to a path with Japanese characters,
-      started as the launcher starts it. Also add such a pair to `smoke.ps1`. Its `--auto` check uses ASCII names
-      only, and runs the exe in the same console (`Start-Process -NoNewWindow`).
-      Read the redirected stdout with `Get-Content -Encoding UTF8`: Windows
-      PowerShell 5.1 reads ANSI by default.
+      which gives the child a console without a window, so before phase 1.3
+      it would write in that console's code page there (not yet seen on
+      Windows; see "Remaining points").
+    - `Program.Main` now gives each redirected stream, stdout and stderr (which
+      carries file names in its messages, and which subs2srs shows), its own
+      writer: UTF-8 without a BOM, flushed on every write
+      (`Program.Utf8Writer`, through `Console.SetOut`/`SetError`; eadb3e4). A
+      stream that is a console keeps .NET's writer. C2 makes the reading side
+      UTF-8.
+    - `Console.OutputEncoding` is not set: that changes the code page of the
+      console the tool shares with its parent.
+    - Pinned by `CliTests.RealProcess_JapaneseNames_ReachTheCallerIntact`: a
+      pair in a Japanese folder, saved by the real executable started as the
+      launcher starts it. It sets `LC_ALL=en_US.ISO-8859-1` in the child, so
+      it fails on Linux without the change; Windows ignores that variable.
+      `smoke.ps1` checks a Japanese folder and file names too (section 5,
+      566ca47, by the lead), running the exe in the same console
+      (`Start-Process -NoNewWindow`) and reading the redirected stdout with
+      `Get-Content -Encoding UTF8`: Windows PowerShell 5.1 reads ANSI by
+      default.
+
+  Left:
+  - **Push a `v*` tag** after the merge, so a zip is published (the user's
+    step). There is no tag yet.
   - Until the zip exists: `dotnet publish SubsRetimer\SubsRetimer.csproj -c Release -o C:\Tools\subsretimer`
     with the .NET 10 SDK you already use to build subs2srs, and put that folder
     on `PATH` or in subs2srs's *Tools Directory*.
-- **S4.** README contract table, usage text and CHANGELOG; tests in `CliTests`
-  (gate, report contents, exit 2 with nothing written) and `AutoAlignTests`
-  (the coverage number on a fixture with CC-style cue lines in the target).
+- **S4.** Tests, written by the phase that built each behaviour: `CliTests`
+  (the gate, exit 2 with nothing written, an existing `--output` untouched,
+  the option refused, the coverage line), `CliTests.Report.cs` (the report of
+  a saved run, a gated run and one with no timed lines, a stale report gone
+  after exit 1, numbers with a `.` in any culture), `CliTests.Utf8.cs` (the
+  Japanese names, the UTF-8 writer), `RetimerEngineTests` (the coverage rules)
+  and `AutoAlignTests` (the coverage of a right and a wrong closed-caption
+  pair; every block keeping its offset under timing jitter, from 1.1b).
+  Documentation in phase 1.4: README "Usage" (the two options, reading the
+  coverage line), "How auto-align works" (the smoothed histogram, 12
+  candidates) and "Contract for other programs" (the gate, the report, UTF-8
+  when redirected, PowerShell's decoding), and CHANGELOG under Unreleased.
 
 Not needed: a directory mode (decision 5); an overwrite flag (an explicit
 `--output` already overwrites); reference-side sign filtering (the EN tracks are
@@ -424,8 +469,8 @@ redoing.
    6. In the GUI, set Subs1 = retimed JP, Subs2 = EN, and run the Preview with AI
       grouping through `claude`. This checks the CLI provider on Windows and
       shows the time per episode.
-1. **subsretimer S1 to S4.** This repository, four agent phases (work orders in
-   `docs/season-work-orders.md`):
+1. **subsretimer S1 to S4.** Done 2026-10-04. This repository, five agent
+   phases (work orders and log in `docs/season-work-orders.md`):
    - 1.1 S1, the coverage number and `--min-match`. Done 2026-10-04
      (a86e27c, e831e27).
    - 1.1b (corrective, found in 1.1): candidate offsets that survive the few
@@ -435,7 +480,7 @@ redoing.
    - 1.2 S2, `--report`. Done 2026-10-04 (753a90f, e74f258).
    - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
-     Done 2026-10-04 (66d5b18, eadb3e4).
+     Done 2026-10-04 (66d5b18, eadb3e4; the lead's bc013aa, 566ca47).
    - 1.4 S4, documentation.
 2. **subs2srs A.** The biggest phase. Its agent phases are cut, and their work
    orders written in subs2srs's `docs/`, once phase 1 is done. The draft cut:
@@ -514,7 +559,7 @@ param(
   [string] $Project,                       # needed once subs2srs-cli exists
   [string] $EnExt = 'ass',                 # the EN track's format: ass or srt
   [string] $JpEncoding = 'utf-8',          # e.g. shift_jis
-  [double] $MinMatch = 0,                  # 0 = off; needs subsretimer --min-match
+  [double] $MinMatch = 0,                  # 0 = off; else passed to subsretimer --min-match
   [switch] $Force                          # retime again even where a retime is newer than
                                            # its inputs, replacing fixes made in the editor
 )
@@ -627,7 +672,7 @@ Write-Host 'For AI grouping on Go: snippet mode AI and the "AI Grouping On Go" p
 exit 0
 ```
 
-## Facts checked (2026-09-28; subsretimer after the editor merge, 2026-10-04)
+## Facts checked (2026-09-28; subsretimer after the editor merge and phase 1, 2026-10-04)
 
 So that phases do not re-derive them. subs2srs paths are relative to that
 repository.
@@ -692,14 +737,22 @@ repository.
     code is 0 if anything was saved, 2 if not.
   - `--check-editor` probes GTK and the display.
   - The 121 unit tests pass on the merged branch.
+- Phase 1 added to `Cli.cs`: `--min-match` (S1) and `--report` (S2), both
+  refused in `Cli.Parse` without `--auto`. In `RunAuto` the order is: both
+  files given, the stale report deleted, the loads, the alignment, the stderr
+  summary with the coverage line, then either the gate (exit 2) or the save,
+  the report, and the path on stdout. `Program.Main` writes redirected stdout
+  and stderr as UTF-8 without a BOM (S3). 159 unit tests pass after phase 1.
 - `SubsRetimer.csproj`: `OutputType` `Exe` on every platform, Windows included,
   so `--auto` has a real stdout. The editor started from Explorer gets a
   console window beside it; subs2srs hides it.
 - `.github/workflows/release.yml` publishes the Windows zip on `v*` tags; no
   tag exists yet. `dist/windows/smoke.ps1` checks `--auto --print-output` on
-  ASCII file names, with the exe in the same console (`Start-Process
-  -NoNewWindow`), reading stdout with `Get-Content`. `ci.yml` has no Windows
-  job.
+  ASCII file names and, since 566ca47, on a Japanese folder and file names,
+  with the exe in the same console (`Start-Process -NoNewWindow`), reading
+  stdout with `Get-Content -Encoding UTF8`. `ci.yml` runs the unit tests on
+  `ubuntu-latest` and, since bc013aa, on `windows-latest` (`windows-tests`);
+  that job passed on this branch on 2026-10-04.
 - `SubsRetimerLauncher.ParseResult` splits stdout on `'\n'` and trims each line,
   so a CRLF from a Windows subsretimer is harmless. The launcher starts it with
   `UseShellExecute = false` and `CreateNoWindow = true`
@@ -718,9 +771,23 @@ repository.
   Auto-align picks a different offset per segment, which only raises the wrong
   pair's number, so the gap is smaller still on real data. S1 uses the
   second rule.
+
+  As built, `AutoAlignTests.ReferenceCoverage_TellsTheRightClosedCaptionFileFromAnotherEpisodes`
+  checks this after auto-align on a closed-caption fixture (300 lines, three
+  cuts, ±250 ms jitter, split lines and cue lines): the right pair at 90% or
+  more, and at least 25 points above another episode's file. Phase 1.1b
+  measured 99.7% and 53.0% there; over 20 seeds in a scratch harness, the
+  right pairs at 98.7% or more and the wrong ones at 54.3% at most.
 - `AutoAlign.Apply` shifts with `ShiftFrom`, so after a negative cut the target
   list can be out of start order; `MismatchFlags` and `BestOverlap` callers sort
-  a copy (`RetimerEngine.SortedByStart`). The coverage code must do the same.
+  a copy (`RetimerEngine.SortedByStart`). `CoverageFlags` builds a sorted union
+  of the other lines itself, so it takes either list in any order.
+- `AutoAlign.CandidateOffsets` (since phase 1.1b): a histogram of the start
+  differences of every reference and target line that start within 10
+  minutes of each other, in 100 ms bins, smoothed with weights 1-2-3-2-1 over
+  ±2 bins; then up to 12 peaks (`AutoAlignOptions.MaxCandidates`, 8 before),
+  each more than 3 bins from those already picked. The DP, its switch
+  penalty, `Refine` and `MergeSimilar` are as they were.
 
 ## Remaining points
 
@@ -736,4 +803,15 @@ repository.
   "Known limitations"): a short leading block folded into the next segment, a
   segment boundary one line late, and early lines clamped to `0:00:00`. Phase 0
   shows whether they matter on real episodes. If they do, they are Core tuning
-  work ahead of S1.
+  work in this repository.
+- **Candidate offsets under heavy jitter** (left from phase 1.1b): the
+  histogram counts every pair of lines within ±10 minutes, so a short block
+  stays a weak peak. In 2 of 60 simulated closed-caption pairs at 400 ms of
+  jitter, auto-align still gives the 40-line leading block a wrong offset (its
+  true −4 s is lost). Phase 0 shows whether real pairs come near that.
+- **UTF-8 output on Windows, unproven failure.** The `windows-tests` CI job
+  passes `CliTests.RealProcess_JapaneseNames_ReachTheCallerIntact`, but no run
+  has shown that test failing on Windows without phase 1.3's UTF-8 change. On
+  Linux it does fail without it, under `LC_ALL=en_US.ISO-8859-1`, which the
+  test sets and Windows ignores. So the Windows code-page failure S3 describes
+  is reasoned from .NET's behaviour, not observed.
