@@ -1,6 +1,7 @@
 //  Copyright (C) 2026 jhhr and contributors
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Globalization;
 using System.Text;
 using SubsRetimer.Core;
 using SubsRetimer.Editor;
@@ -27,6 +28,8 @@ namespace SubsRetimer
       public string? Target;
       public bool Auto;
       public string? Output;
+      /// <summary>The <c>--min-match</c> threshold, 0 to 1; null when not given (off, as 0 is).</summary>
+      public double? MinMatch;
       public string RefEncoding = "utf-8";
       public string TargetEncoding = "utf-8";
       public bool PrintOutput;
@@ -47,6 +50,9 @@ Re-time TARGET so that its lines match the timings of REFERENCE.
 Options:
   --auto                  run auto-align and save without opening the editor
   -o, --output PATH       output path (default: <TARGET>_retimed.<ext>)
+  --min-match FRACTION    with --auto: save only if TARGET covers at least
+                          this share of REFERENCE's lines (0 to 1; default
+                          0, off), else save nothing and exit 2
   --ref-encoding NAME     encoding of REFERENCE (default: utf-8)
   --target-encoding NAME  encoding of TARGET (default: utf-8)
   --print-output          print the path of each saved file to stdout
@@ -80,6 +86,7 @@ Supported formats: .ass, .ssa, .srt";
         {
           case "--auto": o.Auto = true; break;
           case "-o": case "--output": o.Output = Next(); break;
+          case "--min-match": o.MinMatch = ParseFraction(a, Next()!); break;
           case "--ref-encoding": o.RefEncoding = Next()!; break;
           case "--target-encoding": o.TargetEncoding = Next()!; break;
           case "--print-output": o.PrintOutput = true; break;
@@ -94,9 +101,25 @@ Supported formats: .ass, .ssa, .srt";
         }
       }
       if (positional.Count > 2) throw new ArgumentException("At most two files can be given (REFERENCE and TARGET).");
+      // The editor saves what its user chooses to save; there is no
+      // alignment of its own to judge.
+      if (o.MinMatch != null && !o.Auto) throw new ArgumentException("--min-match requires --auto.");
       if (positional.Count > 0) o.Reference = positional[0];
       if (positional.Count > 1) o.Target = positional[1];
       return o;
+    }
+
+    /// <summary>
+    /// A number from 0 to 1, read the same way in every culture: a caller
+    /// writes <c>0.85</c> whatever its locale, and <c>0,85</c> is refused
+    /// rather than read as 0.85 on one machine and 85 on another. NaN fails
+    /// the range check.
+    /// </summary>
+    private static double ParseFraction(string option, string value)
+    {
+      if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v >= 0 && v <= 1)
+        return v;
+      throw new ArgumentException($"{option} takes a number from 0 to 1, like 0.85; not '{value}'.");
     }
 
     public static int Run(string[] args, TextWriter stdout, TextWriter stderr)
@@ -188,7 +211,24 @@ Supported formats: .ass, .ssa, .srt";
       stderr.WriteLine($"{engine.Reference!.FileName}: {engine.ReferenceLines.Count} lines, " +
                        $"{engine.Target!.FileName}: {engine.TargetLines.Count} lines");
       foreach (var seg in segments) stderr.WriteLine("  " + AutoAlign.Describe(seg));
-      stderr.WriteLine($"average mismatch (matched lines): {before.Matched:0.000}s -> {after.Matched:0.000}s");
+      stderr.WriteLine(FormattableString.Invariant(
+        $"average mismatch (matched lines): {before.Matched:0.000}s -> {after.Matched:0.000}s"));
+
+      // Printed with or without a threshold: it is the number a threshold is
+      // chosen from.
+      var coverage = engine.ReferenceCoverage();
+      stderr.WriteLine(FormattableString.Invariant(
+        $"reference covered: {coverage.Percent}% ({coverage.Covered} of {coverage.Counted} lines)"));
+
+      // The gate comes before Save, so a refused alignment writes nothing and
+      // an existing --output keeps its bytes. 0, the default, is off.
+      double minMatch = o.MinMatch ?? 0;
+      if (minMatch > 0 && coverage.Share < minMatch)
+      {
+        stderr.WriteLine(FormattableString.Invariant(
+          $"subsretimer: reference covered {coverage.Percent}% is below --min-match {minMatch}; nothing saved"));
+        return ExitNothingSaved;
+      }
 
       string saved = engine.Save(output);
       stderr.WriteLine("saved " + saved);
