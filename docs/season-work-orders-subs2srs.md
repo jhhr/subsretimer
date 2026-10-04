@@ -437,3 +437,29 @@ UI 22 on my own run; pushed b912688. Split the old 2.3 into 2.3 (A3 checks, shar
 `GoAsync`) and 2.3b (`go` runs, table, exit codes), with 2.1's and 2.2b's setup findings
 in 2.3b. Open for the docs phase: the GUI still says "Action cancelled." when a step
 failed; the result knows better, the dialog was kept by the spec.
+
+### Phase 2.3 — 2026-10-04 — 3372ae2
+Built: `GoChecks.Run(settings, audioStreamIndex, aiGroupingRuns)` (`subs2srs/GoChecks.cs`) → every `GoProblem` (Error or
+Warning, message) in order: output dir (blank: the GUI's "Please provide Output Directory."; else created if missing, a file
+written and deleted, the folders it created removed: `Cannot write to output directory "<dir>": <reason>`), deck name (the
+GUI's message), ffmpeg (`FFmpegMissingMessage`), else the animated encoder when on (`MissingEncoderHint`), `claude` for a
+`terminal-` model when `aiGroupingRuns` (new `ClaudeCliProvider.ResolveExecutable()`, which the constructor now uses; blank =
+none, as `AiGrouper` decides), then the audio-stream warning (same condition and text as before). `GoChecks.AudioStreamIndex`
+= `AudioStream.DisplayNum` (the GUI list's position), else 0. `GoAsync` keeps its three widget checks and messages, then after
+`SaveSettings` runs the checks in `Task.Run` with Go disabled meanwhile (the await is now unconditional: no double Go);
+errors in one `showErrMsg`, each warning `showConfirm`ed; `aiGroupingRuns` = `aiGroupingOnGoApplies(previewVars ?? new)`.
+`go --dry-run`: the checks on **stderr** after the table (`error: `/`warning: `, further lines indented, "all passed" when
+none, and what go does at a warning with or without `--yes`); an error exits 1, a warning keeps 0/3. Season mode sets
+`VideoClips.Files` to the ready episodes' videos first (the only piece of 2.3b's setup built); `aiGroupingRuns` = mode AI.
+Tests: `GoChecksTests` (11), `CliTests` +2 (errors under the table and exit 1, `claude` in AI mode with the On Go preference
+off; an audio warning with and without `--yes`), UI `Go_WithAnOutputDirUnderAFile_SaysWhy_AndDoesNotStart`. Seen failing:
+the output-dir check off (2 GoChecks, the CLI and the UI test: the run started, bare "Cannot write to output directory."), the
+CLI passing the On Go preference instead of the mode. Unit 607 / 4 skipped, UI 23, Debug and Release.
+Choices / deviations: stderr, not stdout, so stdout stays the table (the usage says so; existing tests parse it). The dry-run
+CliTests got `FakeFfmpeg` (an empty `ffmpeg` in the Tools Directory; on PATH for the real process) so they need no ffmpeg.
+`claude` missing is an error in the GUI too: Go used to group every uncached episode by the rules silently; it now refuses
+with the reason, only when AI runs on Go. A configured Claude CLI Path is not checked on disk. No "exists but unwritable"
+test: the container runs as root; a file, and a path under one, cover it.
+The next phase must know: call `GoChecks.Run` after the season setup and `--grouping`, with `GoChecks.AudioStreamIndex`, and
+send a warning through `UtilsMsg.showConfirm` (answers `--yes`). `validateAudioStreamConsistency` numbers episodes by position
+(i + 1), not `EpisodeNumber`, and prints "Reference (episode -1)" when no video has the stream; left alone.

@@ -326,7 +326,9 @@ documented `--auto` behaviour.
     `WorkerAnimatedSnapshot.cs:42` throws mid-run otherwise.
   - The audio streams are consistent across videos. The GUI asks at
     `MainWindow.cs:1374-1386`; the CLI refuses unless `--yes`.
-  - `claude` is found when grouping is AI.
+  - `claude` is found when grouping is AI with a `terminal-` model and the run
+    asks the model: in the GUI only when the AI step runs on Go (not from the
+    Preview's grouping, not with *AI Grouping On Go* off); in the CLI always.
 - **A4. Explicit episode numbers.** Add `Settings.EpisodeNumbers`, not saved in
   the project (like `Files`), and one helper, `Settings.EpisodeNumber(index)`,
   that falls back to `index + EpisodeStartNumber`.
@@ -499,7 +501,8 @@ redoing.
    - 2.2 A4: explicit episode numbers. Done 2026-10-04 (53117ed).
    - 2.2b A5: the run result; episode-number padding that does not change
      when episodes are skipped. Done 2026-10-04 (b912688).
-   - 2.3 A3: the checks before starting, shared with the GUI.
+   - 2.3 A3: the checks before starting, shared with the GUI. Done 2026-10-04
+     (3372ae2).
    - 2.3b A7: `go` runs the pipeline; the table and exit codes.
    - 2.4 A6: the AI pre-pass.
    - 2.5 A8: packaging. 2.6: documentation.
