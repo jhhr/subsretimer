@@ -20,7 +20,9 @@ It is not a general subtitle editor like Aegisub.
 ## Usage
 
 ```
-subsretimer [options] [REFERENCE] [TARGET]
+Usage: subsretimer [options] [REFERENCE] [TARGET]
+
+Re-time TARGET so that its lines match the timings of REFERENCE.
 
   REFERENCE               subtitle file already timed to the video (left pane)
   TARGET                  subtitle file to be retimed (right pane)
@@ -28,6 +30,12 @@ subsretimer [options] [REFERENCE] [TARGET]
 Options:
   --auto                  run auto-align and save without opening the editor
   -o, --output PATH       output path (default: <TARGET>_retimed.<ext>)
+  --min-match FRACTION    with --auto: save only if TARGET covers at least
+                          this share of REFERENCE's lines (0 to 1; default
+                          0, off), else save nothing and exit 2
+  --report PATH           with --auto: write a JSON report of the run to
+                          PATH when it exits 0 or 2; a file already there
+                          is deleted first, so an error leaves none
   --ref-encoding NAME     encoding of REFERENCE (default: utf-8)
   --target-encoding NAME  encoding of TARGET (default: utf-8)
   --print-output          print the path of each saved file to stdout
@@ -41,6 +49,9 @@ last wrote, else to <TARGET>_retimed.<ext>, asking before it replaces a file
 there that it did not write. Files opened from the editor are read in the
 encodings given here. A TARGET that is not valid text in its encoding is
 refused: saving it would change the characters that could not be read.
+
+Exit status: 0 a file was saved, 2 nothing was saved, 1 error.
+Supported formats: .ass, .ssa, .srt
 ```
 
 Supported formats: `.ass`, `.ssa`, `.srt`. Output keeps the input's encoding,
@@ -70,11 +81,43 @@ for jp in JP/*.ass; do
 done
 ```
 
+### Reading the coverage line
+
+`--auto` prints to stderr the segments it found (each run of target lines
+that moved together, and by how much), the average mismatch before and
+after, and a line like
+
+```
+reference covered: 97% (291 of 300 lines)
+```
+
+That is the share of REFERENCE lines of which the retimed TARGET lines,
+together, cover at least half the duration: a line that TARGET splits in two
+still counts, and a REFERENCE line with no duration is left out. It is
+measured on the reference so that lines only TARGET has, such as the sound
+cues and speaker lines of closed captions, cannot lower it. A wrong pair
+still covers part of the reference by chance, so a bad alignment shows as a
+lower number, not as zero. The number flags a pair that aligned badly as a
+whole; a few misplaced lines (a short cold open before a cut, say) barely
+move it.
+
+`--min-match` turns it into a gate: below the threshold nothing is saved and
+the exit status is `2`. There is no recommended threshold yet. To choose one
+for your files, run a pair you know is right and a pair you know is wrong
+(episode 2's TARGET against episode 1's REFERENCE), and put the threshold in
+the gap between their two numbers. The percentage shown is rounded down;
+`--min-match` compares the exact share. Its FRACTION is written with a dot
+(`0.85`) in every locale.
+
 ### How auto-align works
 
 Both files describe the same dialogue on the same footage, so their timing
-structure is a shared fingerprint. `--auto` histograms start-time
-differences to find a few candidate offsets, scores every target line under
+structure is a shared fingerprint. `--auto` histograms, in 100 ms bins, the
+start-time differences of every pair of a reference and a target line that
+start within ten minutes of each other. It smooths the histogram over the
+neighbouring bins, because two subtitlers' timings differ by a few hundred
+ms per line and would otherwise split one offset's peak, and takes up to 12
+of its highest peaks as candidate offsets. It scores every target line under
 each candidate by how well it overlaps a reference line, then picks one
 candidate per line with a dynamic program that penalises changing offset.
 The result is a piecewise-constant shift with a handful of breakpoints, one
@@ -178,16 +221,64 @@ relies on:
   editor reports a save while its window is still open. Everything else goes
   to stderr.
 - Exit status `0`: at least one file was saved. `2`: nothing was saved
-  (editor closed without saving, or a file had no timed lines). `1`: error,
-  message on stderr — including no display to open the editor on.
+  (editor closed without saving, a file had no timed lines, or the reference
+  coverage was below `--min-match`). `1`: error, message on stderr —
+  including no display to open the editor on.
 - `--auto` never opens a window and never overwrites an existing output
   unless `--output` names it explicitly. The editor writes `--output` when
   it is given, and asks before its Save replaces any other file it did not
   write.
+- Below `--min-match`, `--auto` saves nothing, leaves an existing `--output`
+  file as it was, says why on stderr
+  (`subsretimer: reference covered 67% is below --min-match 0.9; nothing saved`)
+  and exits `2`.
+- `--report PATH` writes a JSON report of an `--auto` run (below), so a
+  caller need not parse stderr, which is meant for people.
+- When stdout or stderr is redirected, to a pipe or a file, it is written as
+  UTF-8 without a byte-order mark, whatever the console's code page or the
+  locale, and its lines end as usual on the platform: `\r\n` on Windows,
+  `\n` elsewhere. Written to a console, they follow the console's encoding
+  as before.
+- PowerShell, Windows PowerShell 5.1 included, decodes the output of a
+  program it captures (`$saved = subsretimer ...`) with
+  `[Console]::OutputEncoding`: set
+  `[Console]::OutputEncoding = [Text.Encoding]::UTF8` first, or a Japanese
+  path can come back garbled.
 - Both modes refuse a target that is not valid text in its encoding (exit
   `1`), because saving it would change its text.
 - `--check-editor` exits `0` when the editor can start and `1`, with the
   reason on stderr, when it cannot, without opening a window.
+
+### The report
+
+`--report PATH` is written when an `--auto` run exits `0`, after the file is
+saved and before its path goes to stdout, so a caller that reads the path
+finds the report already there; and when it exits `2`, below `--min-match` or
+with no timed lines. A file already at PATH is deleted before either input is
+read, so a run that then fails (exit `1`) leaves none. An error in the
+command line itself (an unknown option, `--auto` without both files) exits
+`1` before that and leaves PATH alone: read the report only after exit `0`
+or `2`.
+
+The file is UTF-8 without a byte-order mark, with camelCase names, every
+path in full and numbers written with a `.`. Its top-level fields:
+
+| Field | Value |
+| --- | --- |
+| `version` | `1`. Raised when a field changes meaning or goes away, not when one is added. |
+| `reference`, `target` | `path`, `lineCount` and `encoding` (the one the file was read in) |
+| `output` | the path the run saves to, or would have saved to |
+| `segments` | one per run of target lines moved together: `firstLine` and `lastLine` (1-based, as on stderr), `offsetMs`, `matchedLines`, `lineCount` |
+| `referenceCoverage` | `covered`, `counted`, `share` (0 to 1): the numbers of the coverage line |
+| `targetMatched` | `matched`, `lineCount`, `share`: the target lines that overlap any reference line at all |
+| `averageMismatchSeconds` | `before` and `after`, each with `all` and `matched` |
+| `minMatch` | the `--min-match` given, or `null` |
+| `exitCode` | `0` or `2` |
+| `saved` | the saved path, or `null` |
+| `reason` | `null` when saved, `"below min-match"`, or `"no timed lines"` |
+
+With no timed lines nothing was aligned: `segments` is `[]` and
+`referenceCoverage`, `targetMatched` and `averageMismatchSeconds` are `null`.
 
 ## Dependencies
 
