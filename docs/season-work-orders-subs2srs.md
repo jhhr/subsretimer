@@ -205,7 +205,10 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   shared. "Kept" means that exact path: an earlier `.en.srt` beside a new `.en.ass`
   makes two `.en` files, which `go` skips; 3.4 decides. Unit 694 / 4 skipped.
 - Windows mkvmerge has no `--command-line-charset` (the test helper `Mux` passed it;
-  fixed in a53049d). `--output-charset UTF-8` on Windows is checked by CI from a53049d.
+  fixed in a53049d). CI is green on a53049d on both jobs, so the real mkvmerge and
+  mkvextract tests (`--output-charset UTF-8` included) pass on Windows too.
+- The user opened jhhr/subs2srs#5 from this branch (to `main`); every push runs CI
+  twice (push and pull_request).
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -472,27 +475,75 @@ PowerShell). Facts checked by the lead (2026-10-04, subs2srs at 3f31e62):
   (`[RequiresMkvToolnixFact]`, a new skip attribute like `RequiresFfmpegFact`); a bad
   track id leaves no file; an existing output is not touched.
 
-#### 3.3 — The launcher and the retime stage (spec C1, C2, Design 7 and 9)
+#### 3.3 — The launcher (spec C2, Design 9)
 
-- C2 first: `SubsRetimerLauncher` through `makeToolStartInfo` (UTF-8 pipes, no window),
-  then `Request` gains `Output`, `MinMatch`, `Report`. The Tools-tab dialog keeps
-  working (UI tests).
+Split from the old 3.3 by the lead: this phase is `SubsRetimerLauncher` only (126 lines,
+`subs2srs/`, LF); 3.3b uses it. Facts (lead, 2026-10-04): `RunAsync` builds its own
+`ProcessStartInfo` with no encodings; on a cancel it returns exit 2 "Cancelled" and
+**leaves the child running** (`WaitForExitAsync(token)` only stops waiting). The one
+caller is `DialogSubsRetimer.cs:215-253` (`Saved` / `NothingSaved` / failed message).
+`MkvTracks.StartInfo(exe, args)` and `MkvTracks.RunAsync(psi, ct)` (internal: kill on
+cancel, wait, rethrow) are the patterns to reuse; subsretimer is a .NET program, so the
+`LC_ALL` part is harmless but not needed.
+
+- Through `UtilsCommon.makeToolStartInfo` (UTF-8 pipes, no window), arguments by
+  `ArgumentList`. A cancel kills subsretimer and waits for it, and the caller can tell
+  a cancel from exit 2 (throw `OperationCanceledException`, or a `Cancelled` result:
+  your choice; the dialog keeps its behaviour).
+- `Request` gains `MinMatch` (`double?`, passed only when set, invariant culture) and
+  `ReportPath`; `OutputPath` exists. `BuildArguments` keeps `--` before the paths.
+- `RetimeReport.Read(path)` (or a method on the launcher): the fields 3.3b's table needs
+  from subsretimer's `--report` JSON (`version` 1): the exit code, `saved`, the
+  segment count (`segments`), `referenceCoverage.share`, `reason` (null /
+  `"below min-match"` / `"no timed lines"`). A missing or unreadable report is null,
+  not an exception. Read subsretimer's `SubsRetimer/AutoReport.cs` and
+  `SubsRetimer.Tests/CliTests.Report.cs` in `/home/user/subsretimer` for the shape.
+- `EditorCommand(exe, request)`: the command that opens subsretimer's editor on a pair
+  (Design 9): no `--auto`, `--min-match`, `--report` or `--print-output`; with
+  `--target-encoding` (and `--ref-encoding` unless UTF-8) and `--output`. Quoted for
+  the platform's shell, the platform a parameter so both are tested: POSIX single
+  quotes; on Windows double quotes, in a form that runs in PowerShell (the user's
+  shell; mind a full exe path with spaces, which PowerShell needs `& ` for). Check
+  how subsretimer's `Cli.cs` takes the editor's arguments.
+- Tests (extend `SubsRetimerLauncherTests`): the arguments; the start info's encodings;
+  the report on JSON written by the real tool (generate it once with subsretimer
+  built from `/home/user/subsretimer` into `$S`, copy it into a fixture); the editor
+  command on both platforms with spaces, quotes and Japanese names; a cancel kills
+  the child (a scripted runner, or a real child process that sleeps); one test gated
+  on `SUBSRETIMER_EXE` that runs the real tool on a pair in a Japanese folder and
+  gets the saved path back intact. Run that one locally with the variable set.
+- UI tests: the dialog uses the launcher.
+
+#### 3.3b — The retime stage (spec C1, C2, Design 7 and 9)
+
+Command-line only: `subs2srs.Cli/`, next to `EpisodeList` (which already finds
+`s2s/<name>.ja.*` / `.en.*` for `go --season`; read it first).
+
 - C1, pure: the JP file of a video is the one subtitle file (`.ass`, `.ssa`, `.srt`) in
   the season folder named `<video name>.<ext>` or `<video name>.<tag>.<ext>`, a tag
   other than `en`/`eng` (an English file beside the video is not the JP one); zero or
-  several skip the episode with the names.
-- The retime stage per episode: output `s2s/<video name>.ja.<ext of the JP file>`; keep
-  it when it is newer than both its EN and JP files (an earlier run's, or a fix saved
-  from the editor), unless `--force`; otherwise delete every `s2s/<video name>.ja.*`
-  first, then run `subsretimer --auto --min-match F --report s2s/<video name>.retime.json
-  --target-encoding <project's Subs1 encoding> --output OUT -- EN JP`. Read the report
-  for the table (`2 cuts, 97% of EN covered`; below `--min-match`; the tool's message
-  for exit 1). For exit 2, keep the editor command for that pair (without `--auto`,
-  quoted for the platform's shell) to print after the table.
-- Tests: the JP lookup (pure); keep-if-newer and `--force` and the stale-output delete
-  with a scripted launcher; the report parsing on the tool's real JSON (copy one from
-  subsretimer's `CliTests.Report.cs` shape, or generate it with `SUBSRETIMER_EXE` if
-  set); one env-gated real-tool test (`SUBSRETIMER_EXE`) end to end.
+  several skip the episode with the names. Names with dots (`Show.S01E01.1080p`) and
+  names that prefix another (`Ep 1`, `Ep 10`) must work; compare names, do not glob.
+- Per episode, given the video, its EN file and its JP file: output
+  `s2s/<video name>.ja.<ext of the JP file>`; keep it when it is newer than both its
+  EN and JP files (an earlier run's, or a fix saved from the editor), unless `force`;
+  otherwise delete every `s2s/<video name>.ja.*` first (also when keeping, delete the
+  other `.ja.*` beside the kept one: `go` skips an episode with two), then run the
+  launcher with `--auto`, `MinMatch` (null: not passed; 3.4 sets the default),
+  `--report s2s/<video name>.retime.json`, `--target-encoding` the project's Subs1
+  encoding, `--ref-encoding utf-8` (extracted EN is UTF-8), `--output OUT`.
+- The result per episode for 3.4's table: kept / retimed (`2 cuts, 97% of EN covered`
+  from the report) / below `--min-match` (`41%`) / no timed lines / failed (the
+  tool's message for exit 1; subsretimer not found) / no JP file (the names) / no EN
+  file; and for exit 2 the editor command (3.3's `EditorCommand`). An exit 1 gets no
+  command (Design 9). A cancel propagates.
+- For `--only retime` 3.4 needs the EN file without extracting: the one `s2s/<video
+  name>.en.*` (none or several: the reason). Provide it here.
+- Tests: the JP lookup (pure); keep-if-newer, `force`, the stale-output delete and the
+  sibling delete with a scripted launcher (a seam like `MkvExtract.RunnerOverride`);
+  the table text per outcome; one env-gated real-tool test (`SUBSRETIMER_EXE`) end to
+  end on a two-episode folder (one retimed, one below `--min-match` with its editor
+  command). Run it locally with the variable set.
 
 #### 3.4 — `subs2srs-cli season` (spec D, End state)
 
@@ -831,4 +882,5 @@ Reasons from mkvextract hold full paths. Left open: Windows unchecked (line endi
 ### Lead — 2026-10-04 — after phase 3.2
 Reviewed `MkvExtract`; Release unit 694 / 4 skipped on my own run; pushed 2f77756. CI
 with MKVToolNix: Linux green; Windows failed one test in the helper `Mux`
-(`--command-line-charset` is not an option there), fixed in a53049d.
+(`--command-line-charset` is not an option there), fixed in a53049d; both jobs green
+on it (runs 22 and 23).
