@@ -622,3 +622,28 @@ for the docs phase (`docs/open-items.md`): `Environment.GetFolderPath` returns "
 resolve under the working directory (the wrapper creates them; running the binary
 directly does not); every `go` leaves an empty `log-*.txt`; the CLI has no app manifest
 or icon.
+
+### Phase 2.6 — 2026-10-04 — 055e9bd
+Built (docs only): README "Command line" (usage, the options block copied from the real `--help` and diffed
+against it, season layout, checks, AI pre-pass and usage limit, an example table in `TextTable`'s format, exit
+codes, preferences, install); CHANGELOG Unreleased (Command line, Go, Tests, Build/CI); AGENTS.md layout row and
+run line for `subs2srs.Cli`; architecture.md "The command line" (bootstrap, season setup and why, `GoChecks`,
+the pre-pass hand-off, `PipelineResult`) and the launcher contract (editor exists: exit 0/2; newer options);
+testing.md CLI tests; gtk-and-windows.md packaging, smoke, `release.yml` by hand; open-items.md the items
+below. Spec: Status, the Cards row of "What works today", design 6 (a cached episode after the limit runs),
+design 8 (exit 1 for a failed step, TSV deleted; 130 too), section A as built, the interim script's prose.
+Checked by running: `--help`/`--version`; a dry run on a demo season (its audio warning said "episodes: 1, 2"
+for episodes 1 and 3: `validateAudioStreamConsistency` numbers by position); with no `~/.config` the CLI read
+`subs2srs/preferences.json` and wrote `subs2srs/Logs/log-*.txt` under the cwd; each run's log file is 3 bytes
+(a BOM), made because `RunAsync` reads `Logger.Instance.Echo` before turning logging off.
+Choices / deviations, beyond the work order: README's Subs Re-Timer paragraph and open-items' deferred subsretimer
+item 1 said the tool's editor was not ported; fixed (item removed, spec E's reference renumbered).
+gtk-and-windows.md said the tool has no Windows build; fixed. open-items also lists the one-off
+`PreviewGroupingScrollTests` "leaked MainWindow" failure next to the Windows hang.
+Script: its `go` call matches the real options and exit codes; prose added for what it did not say (no `--yes`,
+so an audio warning stops it with exit 1; the project's encodings; `[Console]::OutputEncoding` when captured;
+how to get `subs2srs-cli.exe` before a tag). Not run: no PowerShell here. Code block byte-identical.
+Left open: tests.md lacks rows for older files (`SubsProcessorE2ETests`, `InfoStreamTests`, `PrefDefaultTests`,
+`SnapshotsTests`, UI `MainWindowFlowTests`, `DialogPrefFlowTests`, `WindowSmokeTests`); every new file has one.
+AGENTS.md says `subs2srs.Eval` is the only place outside the app that calls a real provider; `go` does too.
+Unit 621 passed / 4 skipped after the docs (unchanged).

@@ -3,9 +3,12 @@
 Status: revised 2026-09-28 with the user's answers (recorded under "Decisions
 from your answers"). Remaining points are at the end. Built by phase agents
 since 2026-10-04, from the work orders in `docs/season-work-orders.md`.
-Phase 1 (subsretimer, S1 to S4) is done (2026-10-04). Phase 2 (subs2srs A) is
-next; its work orders are to be written in that repository's `docs/`. The
-user's phase 0 runs alongside; its numbers set the `--min-match` threshold.
+Phase 1 (subsretimer, S1 to S4) is done (2026-10-04). Phase 2 (subs2srs A,
+`subs2srs-cli go`) is done (2026-10-04); its work orders and log are in
+`docs/season-work-orders-subs2srs.md`. Phase 3 (subs2srs B, C, D: extraction,
+retiming and `subs2srs-cli season`) is next. The user's phase 0 runs alongside;
+its numbers set the `--min-match` threshold, and no real season has been
+through `go` on Windows yet.
 
 Builds on the editor branch (`ui-editor`, PR #1), merged into `main` on
 2026-10-04. Revised then for what that branch already provides:
@@ -47,7 +50,7 @@ get their cards, with their real episode numbers.
 | --- | --- | --- |
 | Extract EN | `mkvextract <mkv> tracks <id>:<out>` works by hand. Checked 2026-09-28 on mkvtoolnix 82: it wrote a UTF-8 SRT with a BOM. The subs2srs Extract dialog extracts *every* subtitle track into a folder you pick, and ignores extraction errors. | Works by hand. |
 | Retime | `subsretimer --auto --output OUT -- EN JP` works per pair. An explicit `--output` overwrites, so re-runs work. Checked on an EN track extracted from an mkv with a 90 s cut: it found −90.000 s, with 2 of 2 lines matched. A JP file that does not decode in the given encoding is refused with exit 1, not saved garbled. Without `--auto` the same command opens the editor, whose Save writes to `--output`. | Works. The Windows bundle builds and passes its smoke test (Windows 10, 2026-10-04), but no release tag has been pushed, so no zip is published yet. Never tried on a real episode (phase 0). Since phase 1 a script can tell a pair that aligned badly as a whole from a good one, by `--min-match` and `--report` (S1, S2); the threshold is still to come from phase 0. |
-| Cards | subs2srs has **no command line**. `Program.Main` ignores `args` and always starts GTK, and on Windows the exe is a `WinExe` with no console. It also cannot leave an episode out: the episode number is always the position in the sorted file list plus the start number. | **Blocker.** |
+| Cards | Until phase 2, subs2srs had **no command line**: `Program.Main` ignores `args` and always starts GTK, the Windows exe is a `WinExe` with no console, and an episode could not be left out without renumbering the later ones. Since phase 2, `subs2srs-cli go --project P --season DIR` makes a season's cards, skipping an episode without both files and keeping the others' numbers. | Works on Linux and in the tests (Windows CI included). Not yet run on a real season, nor on Windows outside CI; no release tag ships it yet. |
 
 ## Decisions from your answers (2026-09-28)
 
@@ -91,7 +94,8 @@ get their cards, with their real episode numbers.
      `StartAsync(reporter, combinedAll, joins)`, used by Preview → Go.
    - The `claude` usage limit stays tripped for the rest of the process
      (`ClaudeCliProvider.UsageLimit`), so once it trips, every remaining episode
-     is skipped at once, without further calls.
+     without a cached grouping is skipped at once, without further calls. (A
+     cached one needs no call and still gets its cards; decided in phase 2.4.)
    - An episode where only some chunks fell back to the rules (a malformed
      answer, repaired) still gets cards, with a warning in the summary.
      Retrying would probably fail the same way.
@@ -109,8 +113,9 @@ get their cards, with their real episode numbers.
 8. **Exit codes for `go` and `season`:**
    - `0`: every episode done.
    - `3`: done, but some episodes were skipped; the summary says why.
-   - `1`: error before any work.
-   - `130`: cancelled.
+   - `1`: error before any work, or a step of the run failed. The TSV such a
+     run had started is deleted: its cards lack media.
+   - `130`: cancelled (a started TSV is deleted too).
 9. **An episode the batch could not retime is fixed by hand in the editor.**
    - For each episode that subsretimer did not save (exit 2: below
      `--min-match`, or no timed lines), the summary prints the command that opens
@@ -287,100 +292,84 @@ documented `--auto` behaviour.
 
 ### A. `subs2srs-cli go`: headless card generation
 
-- **A1. Project and bootstrap.** New console project `subs2srs.Cli`: `Exe` on
-  every platform, assembly name `subs2srs-cli`, referencing `subs2srs` like
-  `subs2srs.Eval` does. It needs `InternalsVisibleTo`, because `SubsProcessor`,
-  `WorkerSubs` and `UtilsSubs` are internal. Bootstrap copies
-  `subs2srs.Eval/Program.cs`:
-  - It reads the GUI's `preferences.json`, so the tool directory, the `claude`
-    model settings and the **AI cache** are shared, and a later Preview of an
-    episode reuses its answer for free. It never writes preferences.
-  - It calls `UtilsCommon.RegisterEncodings()`. Redirected stdout and stderr
-    are written as UTF-8 without a BOM; when either is a console it sets
-    `Console.OutputEncoding = UTF8`, so Japanese file names print correctly on
-    Windows, and restores the console's code page on exit.
-  - `UtilsMsg` hooks go to stderr. A confirm answers no unless `--yes`.
-  - `--verbose` turns on `Logger.Instance.Echo`. Ctrl+C cancels through a token.
-- **A2. Episode list.** Two sources, one resolved list of
-  `(episode number, Subs1, Subs2, video)` rows:
-  - `--season DIR`: the videos in the folder, sorted as `getNonHiddenFiles`
-    sorts them and numbered from the project's start number (decision 2).
-    Subs1 and Subs2 are `s2s\<video name>.ja.*` and `s2s\<video name>.en.*`,
-    exactly one each. An episode missing either one is skipped with the reason.
-  - No `--season`: the project's own patterns, paired by index as the GUI does.
-    Counts must be equal, or the command refuses and prints the lists side by
-    side. Today a missing Subs2 or video file ends in an `IndexOutOfRange`
-    part-way through (`WorkerSubs.cs:128`, `WorkerAudio.cs:109`, …).
+Built in phase 2 (2026-10-04). What follows is what was built; the lasting
+description is in subs2srs's README ("Command line") and `docs/architecture.md`
+("The command line").
 
-  The pattern expansion, episode-range truncation and
-  `UpdateAudioFilenameFormats()` move out of `MainWindow.SaveSettings`
-  (`MainWindow.cs:1129-1277`) into a GTK-free function the GUI also calls
-  (`ProjectFiles.Resolve`). The audio-stream choice stays in `SaveSettings`:
-  it reads the window's stream list; the project file carries
-  `VideoClips.AudioStream`. `ProjectIO.Load` leaves every `Files` array
-  empty, so the CLI cannot run without that step.
-- **A3. Checks before starting**, shared with the GUI's `GoAsync`, which today
-  only checks that three text boxes are not empty:
-  - The output dir can be created and written, and the deck name is not empty.
-  - ffmpeg is found. If animated snapshots are on, their encoder is found:
-    `WorkerAnimatedSnapshot.cs:42` throws mid-run otherwise.
-  - The audio streams are consistent across videos. The GUI asks at
-    `MainWindow.cs:1374-1386`; the CLI refuses unless `--yes`.
-  - `claude` is found when grouping is AI with a `terminal-` model and the run
-    asks the model: in the GUI only when the AI step runs on Go (not from the
-    Preview's grouping, not with *AI Grouping On Go* off); in the CLI always.
-- **A4. Explicit episode numbers.** Add `Settings.EpisodeNumbers`, not saved in
-  the project (like `Files`), and one helper, `Settings.EpisodeNumber(index)`,
-  that falls back to `index + EpisodeStartNumber`.
-  - It replaces the 36 places that compute the number themselves: `WorkerSrs`
-    (tags, sequence markers, every media file name), `WorkerAudio`,
-    `WorkerSnapshot`, `WorkerAnimatedSnapshot` and `WorkerVideo`, `WorkerSubs`
-    (the parser's episode, the per-episode time-shift rule, log lines), and the
-    Preview and Dueling Subtitles dialogs. Some of them use a 1-based
-    `epNum + start - 1`.
-  - Leaving an episode out then keeps the numbers of the others.
-  - A mechanical change, with a test that runs episodes {1, 3} and checks the
-    names and tags.
-- **A5. `SubsProcessor.StartAsync` returns a result**: status (`Completed`,
-  `Cancelled` or `Failed`), message, and card count per episode.
-  - Today it returns a plain `Task`, swallows every exception and reports only
-    through `UtilsMsg`.
-  - A step that stops by returning null or false surfaces as
-    `OperationCanceledException`, so the user reads "Action cancelled."; the
-    result must tell a worker failure from a real cancel. (Checked in 2.2b:
-    most worker failures throw and read "Error: ..."; only the audio worker
-    returns false on a failure.)
-  - The GUI keeps its dialogs.
-- **A6. AI first, then the run** (decision 6).
-  - The CLI runs "Combine subs" and "Inactivate lines" over all episodes, then
-    for each episode calls `AiGrouper.Group` and records the outcome: cached,
-    grouped, *k of n chunks by rules*, or failed with the reason (usage limit,
-    CLI error).
-  - Failed episodes are removed from the line lists, the `Files` arrays and
-    `EpisodeNumbers`. The rest go to `StartAsync(reporter, combinedAll, joins)`,
-    which skips its own first steps and AI step.
-  - *Remove duplicate lines* works across the whole season (one table spans
-    every episode, `WorkerSubs.cs:704`). Running all episodes in one pipeline
-    keeps that behaviour, which one run per episode would not.
-  - `--grouping rules|off` overrides the project's mode for a run without the
-    model.
-- **A7. Output.** Progress on stderr, reusing `ConsoleProgress` from
-  `subs2srs.Eval` (`\r` in a terminal, plain lines otherwise). At the end, the
-  season table and exit code of decision 8.
-- **A8. Packaging**, per subs2srs's `AGENTS.md`:
-  - `packages.lock.json` for the new project.
-  - A CI restore step per project.
-  - `Makefile` install of `/usr/bin/subs2srs-cli`.
-  - `subs2srs-cli.exe` in the Windows bundle and release zip. Check that
-    `bundle-gtk.ps1` and `smoke.ps1` cope with two apphosts in one folder.
-- **A9. Tests**, on the harness of `SubsProcessorE2ETests` and `AiGroupingE2ETests`,
-  with the fake provider:
-  - A `--season` folder with one episode missing its JP file gives exit 3, and
-    the other episodes keep their numbers.
-  - A usage-limit failure on episode 2 skips 2 and every later episode, with no
-    further provider calls.
-  - A pattern-mode count mismatch is refused.
-  - A2 gives the same `Files` arrays as the GUI path.
+- **A1. Project and bootstrap.** Console project `subs2srs.Cli`, assembly
+  `subs2srs-cli`, `Exe` on every platform, referencing the app
+  (`InternalsVisibleTo("subs2srs-cli")`, because `SubsProcessor`, `WorkerSubs`
+  and `UtilsSubs` are internal). `Program.Main` writes redirected streams as
+  UTF-8 without a BOM and sets a console's code page to UTF-8, restored on
+  exit; `CliRunner.RunAsync(args, stdout, stderr, token)` does the rest and is
+  what the tests call. The GUI's preferences are read with `PrefIO.ReadFile`
+  and never written (`--prefs FILE`, `--no-prefs`), so the tool directory, the
+  `claude` settings and the AI cache are shared with the GUI. `UtilsMsg` writes
+  to stderr and a confirm answers `--yes`; `--verbose` echoes the log; Ctrl+C
+  cancels through a token.
+- **A2. Episode list.** `EpisodeList` (in `subs2srs.Cli`):
+  - `FromSeason` over the pure `ForSeason`: the folder's `*.mkv` in
+    `getNonHiddenFiles` order, numbered from the start number, cut at Episode
+    End #; Subs1 `s2s/<video name>.ja.<ext>` and Subs2
+    `s2s/<video name>.en.<ext>` (`ass`, `ssa`, `srt`), exactly one each,
+    matched by whole name ignoring case, never as a wildcard; otherwise the
+    episode is skipped with the reason and keeps the others' numbers. A
+    project with audio from audio files is refused.
+  - `FromPatterns`/`Pair`: the project's own patterns, paired by position;
+    unequal counts are refused with the lists side by side.
+  - The pattern expansion, the End # cut and `UpdateAudioFilenameFormats()`
+    moved out of `MainWindow.SaveSettings` into `ProjectFiles.Resolve`, which
+    the GUI and `go` both call.
+- **A3. Checks before starting.** `GoChecks.Run(settings, audioStreamIndex,
+  aiGroupingRuns)` (in `subs2srs/`) returns every problem at once: errors for
+  the output dir (created and written, then cleaned up), the deck name,
+  ffmpeg, the animated snapshot encoder and `claude` (a `terminal-` model
+  when the run asks the model: on Go only when its AI step runs, in `go`
+  always); a warning for the audio streams. The GUI's `GoAsync` shows all
+  errors in one dialog and asks each warning; `go` lists them on stderr and
+  stops at a warning unless `--yes`. So the GUI now refuses Go when AI
+  grouping on Go would run without `claude`, where it used to fall back to the
+  rules silently.
+- **A4. Explicit episode numbers.** `Settings.EpisodeNumbers` (not saved) and
+  `Settings.EpisodeNumber(index)`, falling back to `index + EpisodeStartNumber`,
+  at all 36 former sites: the workers, the parser's episode, the per-episode
+  time-shift rule, log lines, the Preview and Dueling Subtitles dialogs.
+  `${0:episode_num}` was padded to the run's episode count, so a skip changed
+  the names of the others; `Settings.EpisodeCountForNames`, set by `go` to the
+  season's video count within End #, pads every name as a run over the whole
+  season would. The GUI sets neither, so its numbering is unchanged.
+- **A5. Run result.** `SubsProcessor.StartAsync` returns a `PipelineResult`:
+  `Status` (`Completed`; `Cancelled` only when the reporter's cancel or token
+  is set; otherwise `Failed`), a one-line `Message` ("<step> failed:
+  <detail>"), `CardsPerEpisode` by index, and `ImportFile`. The GUI keeps its
+  dialogs and ignores the result.
+- **A6. AI first, then the run** (decision 6). `AiPrePass` (in `subs2srs.Cli`)
+  runs "Combine subs" and "Inactivate lines" for the ready episodes, then
+  `AiGrouper.Group` per episode, with the outcome `cached`, `grouped`,
+  `k/n by rules` (kept, with a warning), `usage limit` or `failed` (skipped).
+  `DropSkipped` takes the skipped episodes out of the line lists, the `Files`
+  arrays and `EpisodeNumbers`, and the rest go to
+  `StartAsync(progress, combinedAll, joins)`, which skips its own first steps
+  and AI step. *Remove duplicate lines* spans every ready episode, the dropped
+  ones included (re-inactivating after the drop would change the cache keys).
+  `--grouping rules|off` overrides an AI project's mode for a run without the
+  model.
+- **A7. Output.** Progress on stderr (`ConsoleProgress`, from
+  `subs2srs.Eval`). Stdout: the table (`#`, `Episode`, `AI`, `Status`,
+  `Cards`), then `season TSV: <path> (k of n episodes); exit N`; with
+  `--dry-run`, each episode's files, whether its AI grouping is cached, and
+  its status, with the checks on stderr. Exit codes of decision 8.
+- **A8. Packaging.** A lock file and a CI restore line; `make install` adds
+  `/usr/bin/subs2srs-cli` (the wrapper `dist/subs2srs-cli.sh`);
+  `make publish-windows` and `release.yml` publish `subs2srs-cli.exe` into the
+  app's folder after the app (the files both write come out identical);
+  `smoke.ps1` runs its `--version` and `go --help`; `release.yml` also runs by
+  hand, without a release.
+- **A9. Tests**, no network and never `claude`: `EpisodeListTests`,
+  `ProjectFilesTests`, `GoChecksTests`, `CliTests` (the command in-process,
+  and the built console once), `CliAiPrePassTests` (fake provider, or the
+  `claude` transport with a scripted runner, usage limit included), and the
+  episode-number and result tests in `SubsProcessorE2ETests`.
 
 ### B. EN track choice and extraction (inside `season`)
 
@@ -437,7 +426,7 @@ redoing.
   not; then the run continues with the cards for the episodes it saved.
 - The GUI Extract dialog uses B1 and shows track names and flags.
 - The GUI Retimer dialog's planned wildcard batch uses C (subs2srs
-  `docs/open-items.md`, deferred item 2).
+  `docs/open-items.md`, deferred item 1).
 - Natural sort in `getNonHiddenFiles`, so `ep2` sorts before `ep10`. It changes
   the order for existing projects with unpadded names; mention it in the
   CHANGELOG.
@@ -507,7 +496,7 @@ redoing.
      2026-10-04 (6a60ac4, 08f7e99).
    - 2.4 A6: the AI pre-pass. Done 2026-10-04 (e8f14b4).
    - 2.5 A8: packaging. Done 2026-10-04 (f0705c1, 3b373a1).
-   - 2.6: documentation.
+   - 2.6: documentation. Done 2026-10-04 (055e9bd).
 
    A9's tests are written by the phase that builds each behaviour. After phase
    2, the PowerShell script below also makes the cards, with skipped episodes
@@ -517,7 +506,7 @@ redoing.
    logic first, then extraction), 3.2 C, 3.3 D, 3.4 documentation.
 4. **Optional: E.**
 
-### Interim PowerShell script (usable now; makes the cards once phase 2 lands)
+### Interim PowerShell script (until phase 3; makes the cards with `subs2srs-cli`)
 
 What it needs and does:
 
@@ -525,11 +514,31 @@ What it needs and does:
   of MKVToolNix, not of subs2srs or subsretimer. The script looks for it on
   `PATH`, then in `C:\Program Files\MKVToolNix`; the MKVToolNix installer does
   not add that folder to `PATH`.
-- With `subs2srs-cli` on `PATH` (phase 2), it makes the cards. Until then it
-  prints the Subs1, Subs2 and Video patterns to enter in the subs2srs GUI.
-- If any episode was skipped, it does not print them and exits 3 instead. The
-  GUI pairs the files by position, so a gap would give every later episode the
-  wrong subtitles.
+- With `subs2srs-cli` on `PATH`, it then runs
+  `subs2srs-cli go --project <Project> --season <Season>` and exits with its
+  exit code: `0` every episode done, `3` some skipped, `1` an error before any
+  work or a failed step, `130` cancelled (design point 8). `go` prints its
+  table on stdout after the script's own one; an episode the script could not
+  extract or retime lacks its `.en` or `.ja` file in `s2s\`, and `go` shows
+  it as skipped, saying which. No release tag ships
+  `subs2srs-cli.exe` yet: build it in subs2srs with `make publish-windows`
+  (`out\win-x64` then holds both exes) and add that folder to `PATH`.
+- The project is the one saved from the GUI: its Subs1 encoding must be the
+  script's `-JpEncoding` (the retime keeps the JP file's encoding), its Subs2
+  encoding UTF-8 (what `mkvextract` writes), and its audio clips, if on, from
+  the video. `go` reads the GUI's preferences, so ffmpeg and `claude` are found
+  as in the GUI.
+- The script passes no `--yes`, so a warning of `go`'s checks (a video without
+  the project's audio stream) stops it with exit 1. Check the videos, or run
+  the same `subs2srs-cli go` line by hand with `--yes`.
+- `go` writes UTF-8 when its output is redirected. When the script's output is
+  captured or piped, PowerShell decodes it with `[Console]::OutputEncoding`:
+  set that to `[Text.Encoding]::UTF8` first, or Japanese names come out
+  garbled.
+- Without `subs2srs-cli` it prints the Subs1, Subs2 and Video patterns to enter
+  in the subs2srs GUI. If any episode was skipped, it does not print them and
+  exits 3 instead. The GUI pairs the files by position, so a gap would give
+  every later episode the wrong subtitles.
 - The EN track id and format are set once per season: releases keep one track
   layout for a season. Check one episode with `mkvmerge -i`.
 - A retime newer than both its EN and JP file is kept (status `kept`); any
@@ -566,7 +575,11 @@ and an apostrophe:
 - With a stub `subs2srs-cli` it refused to run without `-Project`, and with
   `-Project` it called `go --season`.
 
-Not tested on Windows itself, nor on Windows PowerShell 5.1.
+Not tested on Windows itself, nor on Windows PowerShell 5.1. Its `go` call was
+checked against the built `subs2srs-cli` on 2026-10-04 (phase 2.6, by reading
+the script, without PowerShell): the options and the exit codes are the real
+`go`'s, and the `s2s\<name>.ja.<ext>` and `s2s\<name>.en.<ext>` files it writes
+are the names `go --season` looks for. Not run end to end with the real `go`.
 
 ```powershell
 # season.ps1: extract the EN track, retime the JP file, then make cards.
