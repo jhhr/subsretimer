@@ -478,3 +478,26 @@ Reviewed `GoChecks` and the `GoAsync` diff; Release unit 607 / 4 skipped and UI 
 on my own runs; pushed 3372ae2. Kept the agent's choices: checks on stderr; the GUI now
 refuses Go when AI grouping would run on Go and `claude` is missing (it used to fall
 back to the rules without a word). Both go in the docs phase's CHANGELOG.
+
+### Phase 2.3b — 2026-10-04 — 6a60ac4, 08f7e99
+Built: `CliRunner.GoAsync` runs `go`: load; `--grouping rules|off` (`CliOptions.Grouping`) over the mode, else AI mode refused
+(exit 1, right after `LoadProject`); the list; `SetUpSeasonRun` (ready episodes' `Files`; `Subs[0/1].FilePattern` = the first
+ready episode's own file, no wildcard; `AudioClips` cleared; `EpisodeNumbers`; `EpisodeCountForNames` = `list.Episodes.Count`;
+`UpdateAudioFilenameFormats`; dry runs get it too); none ready: table, exit 3, no run; `GoChecks` (errors listed, exit 1; each
+warning through `UtilsMsg.showConfirm`, so `--yes`); `StartAsync` with `ConsoleProgress` (new file; step labels as lines, `\r`
+only on a terminal). Stdout: `#`, `Episode` (video name), `Status` (done / skipped: why / failed / cancelled), `Cards`
+(`CardsPerEpisode[i]` for the i-th ready episode), then `season TSV: <path> (k of n episodes); exit N` (`TSV:` in pattern
+mode, "not written" when none). `PipelineResult.ImportFile` from `WorkerSrs.ImportFile` (set once the writer opened).
+Choices / deviations: a Failed or Cancelled run that opened the TSV deletes it and says so (its cards lack media; media stay; an
+older TSV is untouched when the run stopped earlier). Failed adds `subs2srs-cli: <Message>` after UtilsMsg's own "ERROR: Error:
+..." with its stack (or "Action cancelled." for the audio worker's false); UtilsMsg's INFO line is the success line. Redirected
+progress prints a text only at a new tenth of its percentage (or with none): the workers report every line and clip. A dry run
+in AI mode without `--grouping` still lists and checks `claude`; only a real go refuses. The padding test has ten videos (4-10
+empty, no subs): with three, padding for 3 and for the 2 that ran are both one digit, so it could not fail.
+Tests (`CliTests` +7, the "not built yet" one replaced): season exit 3 (tags and media `Show_01`/`Show_03` only, rows, TSV line),
+patterns exit 0 with an AI project, On Go on and `--grouping rules` (fake provider never asked), failing audio step (exit 1,
+message, TSV deleted), none ready, failed check, warning without `--yes`, AI refused. Seen failing: no `EpisodeCountForNames`,
+`--grouping` not applied (the fake was asked), cards mapped by list position. Unit 614 / 4 skipped, Debug and Release; no UI
+file touched. Built exe, SIGINT: before the run 130 "cancelled."; during it 130, table with `cancelled`, TSV deleted.
+The next phase must know: 2.4 replaces the AI refusal with the pre-pass and passes `combinedAll`/`joins` to `StartAsync`.
+Left open: on a terminal UtilsMsg's INFO line lands after the last progress text on its line (it writes before any hook runs).

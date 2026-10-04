@@ -503,7 +503,8 @@ redoing.
      when episodes are skipped. Done 2026-10-04 (b912688).
    - 2.3 A3: the checks before starting, shared with the GUI. Done 2026-10-04
      (3372ae2).
-   - 2.3b A7: `go` runs the pipeline; the table and exit codes.
+   - 2.3b A7: `go` runs the pipeline; the table and exit codes. Done
+     2026-10-04 (6a60ac4, 08f7e99).
    - 2.4 A6: the AI pre-pass.
    - 2.5 A8: packaging. 2.6: documentation.
 
