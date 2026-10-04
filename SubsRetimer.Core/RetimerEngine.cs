@@ -6,6 +6,26 @@
 
 namespace SubsRetimer.Core
 {
+  /// <summary>The result of <see cref="RetimerEngine.ReferenceCoverage"/>.</summary>
+  /// <param name="Covered">Reference lines the target covers.</param>
+  /// <param name="Counted">Reference lines with a duration: the ones that can be covered.</param>
+  public readonly record struct Coverage(int Covered, int Counted)
+  {
+    /// <summary>
+    /// <see cref="Covered"/> over <see cref="Counted"/>, from 0 to 1; what
+    /// <c>--min-match</c> is compared with. 0 when nothing was counted:
+    /// coverage that cannot be measured does not pass a threshold.
+    /// </summary>
+    public double Share => Counted == 0 ? 0 : (double)Covered / Counted;
+
+    /// <summary>
+    /// The share as a whole percentage, rounded down in integer arithmetic,
+    /// so 100 means every counted line and a percentage shown beside a
+    /// threshold is never above the share that was compared with it.
+    /// </summary>
+    public int Percent => Counted == 0 ? 0 : (int)(Covered * 100L / Counted);
+  }
+
   /// <summary>
   /// Holds the reference file (already timed to the video) and the target
   /// file (to be retimed), and implements the tool's single edit: shift
@@ -307,6 +327,92 @@ namespace SubsRetimer.Core
       for (int i = 0; i < lines.Count; i++)
         flags[i] = BestOverlap(lines[i], others) <= 0;
       return flags;
+    }
+
+    // ── Coverage: the quality gate of --min-match ────────────────────────
+
+    /// <summary>
+    /// True for lines of which <paramref name="others"/>, together, cover at
+    /// least half the duration: the union of their intervals counts, so a
+    /// line that the other file splits in two is still covered, and two
+    /// overlapping lines are not counted twice. A line with no duration (end
+    /// at or before start) is never covered; <see cref="ReferenceCoverage"/>
+    /// leaves it out of the count. Either list may be out of order.
+    ///
+    /// Stricter than "any overlap" (<see cref="MismatchFlags"/>) on purpose:
+    /// another episode's file, aligned at the offsets where it overlaps
+    /// most, still touches most lines, but covers half of far fewer.
+    /// </summary>
+    public static bool[] CoverageFlags(IReadOnlyList<RetimerLine> lines, IReadOnlyList<RetimerLine> others)
+    {
+      var flags = new bool[lines.Count];
+      var (starts, ends) = Union(others);
+      if (starts.Length == 0) return flags;
+
+      for (int i = 0; i < lines.Count; i++)
+      {
+        long s = lines[i].Start.Ticks, e = lines[i].End.Ticks;
+        if (e <= s) continue;
+
+        // First interval that ends after the line starts; the intervals are
+        // disjoint and sorted, so their ends increase too. Every interval
+        // the line meets follows it, however many there are: no window.
+        int lo = 0, hi = starts.Length;
+        while (lo < hi)
+        {
+          int mid = (lo + hi) / 2;
+          if (ends[mid] <= s) lo = mid + 1; else hi = mid;
+        }
+        long covered = 0;
+        for (int k = lo; k < starts.Length && starts[k] < e; k++)
+          covered += Math.Min(e, ends[k]) - Math.Max(s, starts[k]);
+
+        flags[i] = 2 * covered >= e - s;   // in ticks, so exactly half counts
+      }
+      return flags;
+    }
+
+    /// <summary>
+    /// The union of the lines' intervals as disjoint intervals sorted by
+    /// start, in ticks. Lines with no duration add nothing. The input is not
+    /// changed and may be in any order.
+    /// </summary>
+    private static (long[] Starts, long[] Ends) Union(IReadOnlyList<RetimerLine> lines)
+    {
+      var spans = lines
+        .Where(l => l.End > l.Start)
+        .Select(l => (Start: l.Start.Ticks, End: l.End.Ticks))
+        .OrderBy(x => x.Start)
+        .ToList();
+
+      var starts = new List<long>();
+      var ends = new List<long>();
+      foreach (var (s, e) in spans)
+      {
+        if (ends.Count > 0 && s <= ends[^1])
+          ends[^1] = Math.Max(ends[^1], e);
+        else
+        {
+          starts.Add(s);
+          ends.Add(e);
+        }
+      }
+      return (starts.ToArray(), ends.ToArray());
+    }
+
+    /// <summary>
+    /// How much of the reference the target covers, by
+    /// <see cref="CoverageFlags"/>: the reference lines covered, of those
+    /// with a duration. Measured on the reference so that lines only the
+    /// target has (sound cues and speaker lines in closed captions) cannot
+    /// lower it. Meant for after the alignment: the target may be out of
+    /// order by then.
+    /// </summary>
+    public Coverage ReferenceCoverage()
+    {
+      var reference = ReferenceLines;
+      bool[] flags = CoverageFlags(reference, TargetLines);
+      return new Coverage(flags.Count(f => f), reference.Count(l => l.End > l.Start));
     }
 
     /// <summary>

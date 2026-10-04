@@ -174,6 +174,69 @@ namespace SubsRetimer.Tests
       }
     }
 
+    /// <summary>
+    /// A closed-caption file made from <paramref name="dialogue"/>, as another
+    /// subtitler would time it for another cut of the video: the cuts of
+    /// <see cref="Derive"/>, start and end each off by up to ±250 ms, about
+    /// 15% of the lines split in two, and a 0.5 s sound cue in about 15% of
+    /// the gaps of 1.5 s or more. Sorted by start, as a loaded file is.
+    /// </summary>
+    private static List<RetimerLine> ClosedCaptions(List<RetimerLine> dialogue, (int Index, double Ms)[] cuts, int seed)
+    {
+      var rnd = new Random(seed);
+      var lines = new List<RetimerLine>();
+      for (int i = 0; i < dialogue.Count; i++)
+      {
+        double off = cuts.Where(c => i >= c.Index).Sum(c => c.Ms);
+        double s = dialogue[i].Start.TotalMilliseconds + off + rnd.Next(-250, 251);
+        double e = dialogue[i].End.TotalMilliseconds + off + rnd.Next(-250, 251);
+        if (rnd.Next(100) < 15)
+        {
+          double m = Math.Round((s + e) / 2);
+          lines.Add(new RetimerLine { Start = Ms(s), End = Ms(m), Text = "first half" });
+          lines.Add(new RetimerLine { Start = Ms(m), End = Ms(e), Text = "second half" });
+        }
+        else lines.Add(new RetimerLine { Start = Ms(s), End = Ms(e), Text = dialogue[i].Text });
+
+        if (i + 1 < dialogue.Count && (dialogue[i + 1].Start - dialogue[i].End).TotalMilliseconds >= 1500 && rnd.Next(100) < 15)
+        {
+          double cue = dialogue[i].End.TotalMilliseconds + off + 500;
+          lines.Add(new RetimerLine { Start = Ms(cue), End = Ms(cue + 500), Text = "♪" });
+        }
+      }
+      return lines.OrderBy(l => l.Start)
+        .Select((l, k) => new RetimerLine { Start = l.Start, End = l.End, Text = l.Text, RawIndex = k })
+        .ToList();
+    }
+
+    [Fact]
+    public void ReferenceCoverage_TellsTheRightClosedCaptionFileFromAnotherEpisodes()
+    {
+      // The target's video has a 4 s lead-in, 15 s more from line 40 and
+      // 8 s more from line 200; so does the other episode's.
+      var cuts = new[] { (0, 4000.0), (40, 15000.0), (200, 8000.0) };
+      var reference = Fixtures.Dialogue(300, seed: 1);
+      var rightFile = ClosedCaptions(Fixtures.Dialogue(300, seed: 1), cuts, seed: 101);
+      var wrongFile = ClosedCaptions(Fixtures.Dialogue(300, seed: 2), cuts, seed: 201);
+      Assert.True(rightFile.Count > reference.Count + 50, "the fixture should add split lines and cues");
+
+      double right = AlignedCoverage(rightFile);
+      double wrong = AlignedCoverage(wrongFile);
+
+      // Split lines and cues leave the right file near full coverage, and
+      // the other episode, at the offsets auto-align found for it, far
+      // below.
+      Assert.True(right >= 0.9, $"right pair {right:0.000}");
+      Assert.True(right - wrong >= 0.25, $"right pair {right:0.000}, wrong pair {wrong:0.000}");
+
+      double AlignedCoverage(List<RetimerLine> target)
+      {
+        var e = Engine(reference, target);
+        AutoAlign.Apply(e, AutoAlign.Compute(e.ReferenceLines, e.TargetLines));
+        return e.ReferenceCoverage().Share;
+      }
+    }
+
     [Fact]
     public void EmptyInputs_NoSegments()
     {
