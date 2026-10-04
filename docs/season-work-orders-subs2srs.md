@@ -325,3 +325,24 @@ Reviewed `ProjectFiles`, the `SaveSettings` diff, `EpisodeList` and `PrefIO`; Re
 restore line and the Makefile entries (60737f0), pushed the subs2srs branch.
 Phase 2.1 used about 330k tokens: too big. I split the old 2.2 into 2.2 (A4) and 2.2b (A5),
 and moved 2.1's findings for real runs into 2.3's work order.
+
+### Phase 2.2 — 2026-10-04 — 53117ed
+Built: `Settings.EpisodeNumbers` (`int[]?`, `[JsonIgnore]`, nulled by `Reset` and `RestoreFrom`, so
+`ProjectIO.Load` and the Preview's snapshot/restore clear it like `Files`) and `Settings.EpisodeNumber(index)`
+(0-based; the list when set, an index outside it throws `ArgumentOutOfRangeException`; else `index + start`).
+Every site of section 3 uses it: WorkerSrs (16), WorkerAudio (3), WorkerSnapshot, WorkerAnimatedSnapshot,
+WorkerVideo (2) as `EpisodeNumber(epNum - 1)`, WorkerSubs (7), DialogPreview (combo, validation files),
+DialogDuelingSubtitles (4). `Logger.writeSettingsToLog` logs `episodeNumbers` ("" when null).
+`grep -n EpisodeStartNumber subs2srs/*.cs` now finds only the property, widget copies, the helper and the log.
+Tests: `SubsProcessorE2ETests` theory (numbers {1, 3} with start 7; null with start 5 gives 5, 6): tags,
+sequence markers, and audio, snapshot, video clip and (encoder present) webp names, and no other file in
+`.media`; a time-shift rule from 3 shifts only the second episode. Unit tests in `SettingsSnapshotTests`,
+`ProjectIOTests`. Seen failing: the helper ignoring the list; WorkerSnapshot given `epNum` (1-based).
+Choices / deviations: the parser's episode reaches only `SubsParserVOBSUB`'s bitmap names (compiled out by
+default), not `InfoLine`/`InfoCombined`. The "episode k of n" AI progress labels are positions; left alone.
+The next phase must know: `EpisodeNumbers.Length` must equal the `Files` count, or the run throws at the
+first site past the list. `${0:episode_num}` is zero-padded to the digits of the number of episodes in the run
+(`UtilsName`), not of the largest number: a season run of 9 episodes names episode 10 `10` and episode 3 `3`,
+a later run of 10 names it `03`, so tags and media names change between runs and existing media is not reused.
+Today's GUI does the same with a start number; whether `go` should pad by the largest number is for the lead.
+Left open: the time-shift test covers Subs1 only; the Subs2 site is the same one-line change, untested.
