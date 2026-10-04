@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.5)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.6: phase 2 complete)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -242,7 +242,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5.
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5, 2.6 (phase 2 complete).
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -396,9 +396,101 @@ Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5.
   section made to describe what was built; the interim script in the spec checked
   against the real `go`.
 
-### Phase 3 (B, C, D)
+### Phase 3 (B, C, D): `subs2srs-cli season`
 
-Cut after phase 2, in this file.
+Read the spec's sections B, C and D and "Design" points 1, 7 and 9 for every phase 3 work
+order, and the interim script in the spec (the behaviour phase 3 takes over, tested on
+PowerShell). Facts checked by the lead (2026-10-04, subs2srs at 3f31e62):
+
+- Tools are found by `ConstantSettings.ResolveTool(name)`: the *Tools Directory*
+  preference, then PATH. There is no `mkvmerge` entry yet (`ExeMkvInfo`,
+  `ExeMkvExtract` exist, `Settings.cs:293-301`), and no fallback to MKVToolNix's
+  Windows install folder: the user's interim run failed on exactly that
+  (`mkvextract` not found with MKVToolNix installed in `C:\Program Files\MKVToolNix`).
+- `SubsRetimerLauncher` (`subs2srs/SubsRetimerLauncher.cs`, 126 lines) builds its own
+  `ProcessStartInfo` without UTF-8 encodings; `BuildArguments` passes `--auto`,
+  `--print-output`, both encodings and `--` + the two paths; `ParseResult` takes the
+  last non-empty stdout line; `RunAsync` never throws for tool failures.
+- subsretimer's side (its README "Contract for other programs"): `--min-match F`
+  (exit 2 below it), `--report PATH` (JSON, `version` 1; `reason` null /
+  `"below min-match"` / `"no timed lines"`; `segments`, `referenceCoverage.share`,
+  `saved`), `--output` overwrites, stdout/stderr UTF-8 when redirected, exit 1 with a
+  message naming `--target-encoding` for a target that does not decode.
+- mkvextract (82) writes SRT as UTF-8 with a BOM and exits 2 for a track id that does
+  not exist. mkvmerge and mkvextract are installed here (`/usr/bin`); CI does not
+  install them yet (the lead adds `mkvtoolnix` to CI when a phase needs it).
+
+#### 3.1 — Track list and pick, and finding MKVToolNix (spec B1, B2)
+
+- Pure: parse `mkvmerge -J` output into tracks (id, type, codec id, language and IETF
+  language, track name, forced, default, event count) and pick the EN track as B2
+  says, or return why there is none (no English text track; only image tracks). An
+  explicit track id overrides (and is checked to be a text subtitle track).
+- The runner: `mkvmerge -J <file>` through `UtilsCommon.makeToolStartInfo`, with a
+  process seam for tests. `ConstantSettings.ExeMkvMerge` and its path like the others.
+- MKVToolNix lookup: for `mkvmerge`, `mkvextract` and `mkvinfo`, after the Tools
+  Directory and PATH, on Windows also `%ProgramFiles%\MKVToolNix` (and
+  `%ProgramFiles(x86)%\MKVToolNix`). This also fixes the GUI's MKV dialogs.
+- Tests: JSON fixtures recorded from real `mkvmerge -J` on mkv files you make here with
+  mkvmerge from generated subtitles (no third-party content; several tracks: eng ASS,
+  eng SRT, eng forced, jpn, a track with an IETF `en-US`), plus hand-written JSON for
+  image tracks (`S_HDMV/PGS`, `S_VOBSUB`), marked as hand-written; the pick for each;
+  the override; the Windows fallback through an injected folder list (no real
+  `Program Files` needed).
+
+#### 3.2 — Extraction (spec B3)
+
+- `mkvextract <mkv> tracks <id>:<out>` through `makeToolStartInfo`; skip an existing
+  output; exit 2 or more fails the episode and deletes the partial file; the error text
+  is kept for the table. The output name is `s2s/<video name>.en.<ext>` with `<ext>`
+  from the codec (ASS/SSA → `ass`/`ssa`, UTF8 → `srt`).
+- Tests: the pure name/ext choice; a real extraction of a generated mkv
+  (`[RequiresMkvToolnixFact]`, a new skip attribute like `RequiresFfmpegFact`); a bad
+  track id leaves no file; an existing output is not touched.
+
+#### 3.3 — The launcher and the retime stage (spec C1, C2, Design 7 and 9)
+
+- C2 first: `SubsRetimerLauncher` through `makeToolStartInfo` (UTF-8 pipes, no window),
+  then `Request` gains `Output`, `MinMatch`, `Report`. The Tools-tab dialog keeps
+  working (UI tests).
+- C1, pure: the JP file of a video is the one subtitle file (`.ass`, `.ssa`, `.srt`) in
+  the season folder named `<video name>.<ext>` or `<video name>.<tag>.<ext>`, a tag
+  other than `en`/`eng` (an English file beside the video is not the JP one); zero or
+  several skip the episode with the names.
+- The retime stage per episode: output `s2s/<video name>.ja.<ext of the JP file>`; keep
+  it when it is newer than both its EN and JP files (an earlier run's, or a fix saved
+  from the editor), unless `--force`; otherwise delete every `s2s/<video name>.ja.*`
+  first, then run `subsretimer --auto --min-match F --report s2s/<video name>.retime.json
+  --target-encoding <project's Subs1 encoding> --output OUT -- EN JP`. Read the report
+  for the table (`2 cuts, 97% of EN covered`; below `--min-match`; the tool's message
+  for exit 1). For exit 2, keep the editor command for that pair (without `--auto`,
+  quoted for the platform's shell) to print after the table.
+- Tests: the JP lookup (pure); keep-if-newer and `--force` and the stale-output delete
+  with a scripted launcher; the report parsing on the tool's real JSON (copy one from
+  subsretimer's `CliTests.Report.cs` shape, or generate it with `SUBSRETIMER_EXE` if
+  set); one env-gated real-tool test (`SUBSRETIMER_EXE`) end to end.
+
+#### 3.4 — `subs2srs-cli season` (spec D, End state)
+
+- `season DIR --project FILE [--track ID] [--min-match F] [--force] [--deck NAME]
+  [--only extract|retime|go] [--dry-run] [--grouping rules|off] [--yes] ...`: extract,
+  retime, then `go --season` in one process with one table (Episode, EN track, Retime,
+  AI, Status, Cards), the editor commands after it, and `go`'s exit codes. `--deck`
+  overrides the project's deck name (for `go` too). `--dry-run` extracts, retimes and
+  asks nothing: it shows the track each episode would use, its JP file and the AI cache
+  state. The table warns when the picked track differs between episodes. Extracted EN
+  files are UTF-8: refuse (or warn) when the project's Subs2 encoding is not UTF-8.
+- Tests: a generated season (mkv files made with mkvmerge from the test video and
+  generated subtitles, JP files beside them) through `season` with a scripted retimer
+  and rules grouping: one episode without a JP file, one below `--min-match` (editor
+  command printed), the rest done; `--only retime`; `--dry-run` writes nothing.
+
+#### 3.5 — Documentation
+
+- As 2.6 did for phase 2: README, CHANGELOG, `docs/architecture.md`, `docs/testing.md`,
+  `docs/open-items.md` in subs2srs; the spec's B, C, D as built; the interim script
+  replaced by the one command in the spec's "End state" (keep the script as a fallback
+  for a machine without subs2srs-cli, or say it is retired).
 
 ## 5. Log (newest last; 25 lines at most per entry)
 
@@ -647,3 +739,10 @@ Left open: tests.md lacks rows for older files (`SubsProcessorE2ETests`, `InfoSt
 `SnapshotsTests`, UI `MainWindowFlowTests`, `DialogPrefFlowTests`, `WindowSmokeTests`); every new file has one.
 AGENTS.md says `subs2srs.Eval` is the only place outside the app that calls a real provider; `go` does too.
 Unit 621 passed / 4 skipped after the docs (unchanged).
+
+### Lead — 2026-10-04 — after phase 2.6 (phase 2 complete)
+Reviewed the README's CLI section against `--help`; added one line to AGENTS.md (the CLI
+may call a provider too; 3f31e62); pushed both repos. `release.yml` by hand on the branch
+(run 37227831045) was green: the CLI's `--version` and `go --help` passed the Windows
+smoke test, the zip holds both exes (62.5 MiB). Wrote the phase 3 work orders (3.1-3.5)
+with the facts checked in subs2srs at 3f31e62.
