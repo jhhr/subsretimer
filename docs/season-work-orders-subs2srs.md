@@ -119,9 +119,28 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, before phase 2.1)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.1)
 
-subs2srs `main` at `91578ce`. Facts checked by the lead, so you need not re-derive them:
+Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
+
+- `subs2srs/ProjectFiles.cs`: `Resolve()` fills every `Files` array from its pattern, cuts
+  them to Episode End # (`EpisodeLimit(start, end)`) and calls
+  `UpdateAudioFilenameFormats()`; `MainWindow.SaveSettings` calls it after copying the
+  widgets. A UI test pins `SaveSettings`' arrays (`MainWindowFlowTests`,
+  `PatternSet` harness).
+- `subs2srs.Cli/` (assembly `subs2srs-cli`, lock file, `InternalsVisibleTo` both ways):
+  `Program.Main` (UTF-8 writers for redirected streams; `OutputEncoding` UTF-8 only on a
+  console, restored at exit) → `CliRunner.RunAsync(args, stdout, stderr, token)`, the
+  in-process entry the tests use; `CliOptions` (parsing); `EpisodeList` (`Episode`
+  rows with `Number`, files, `SkipReason`; `ForSeason` pure, `FromSeason`,
+  `FromPatterns`/`Pair`); `TextTable`. Preferences are read with `PrefIO.ReadFile`
+  (never written). `go` without `--dry-run` exits 1 "not built yet". Tests:
+  `EpisodeListTests`, `CliTests`, `ProjectFilesTests`. CI restores the project.
+- Suites after 2.1: unit 575 passed, 4 skipped; UI 22 passed. One Release UI run failed
+  `PreviewGroupingScrollTests` with "leaked MainWindow" and did not recur in 14 runs: if
+  you see it, report it with the log, do not retry it away.
+
+Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 - `subs2srs/subs2srs.csproj`: the GUI app; `Exe`, or `WinExe` on `win-x64`;
   `InternalsVisibleTo` `subs2srs.Tests` and `subs2srs.UiTests`; lock file on.
@@ -172,7 +191,7 @@ subs2srs `main` at `91578ce`. Facts checked by the lead, so you need not re-deri
 
 ## 4. Phases
 
-Done: none yet.
+Done: 2.1.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -212,17 +231,25 @@ Done: none yet.
 - The lead adds the CI restore line and the `Makefile` entries after this phase; say
   exactly what they need.
 
-### 2.2 — Explicit episode numbers and a run result (spec A4, A5)
+### 2.2 — Explicit episode numbers (spec A4)
 
-- `Settings.EpisodeNumbers` (not saved, like `Files`) and `Settings.EpisodeNumber(index)`
-  falling back to `index + EpisodeStartNumber`, used at **every** site listed in
-  section 3, the time-shift rules and the parser's episode included (the GUI dialogs
-  too, for one rule everywhere). Mind the 1-based `epNum` sites.
+- `Settings.EpisodeNumbers` (not saved, like `Files`; null by default) and
+  `Settings.EpisodeNumber(index)` falling back to `index + EpisodeStartNumber`, used at
+  **every** site listed in section 3: the workers, the parser's episode, the per-episode
+  time-shift rule, the log lines, and the GUI dialogs too, for one rule everywhere. Mind
+  the 1-based `epNum` sites. Reset with the other per-run state.
+- Nothing sets `EpisodeNumbers` yet except tests: the GUI's behaviour must not change.
+- Tests: episodes numbered {1, 3} through the e2e pipeline give the TSV tags, sequence
+  markers and every media file name of 1 and 3; a time-shift rule from episode 3 applies
+  to the second file and not the first; null keeps today's numbering.
+
+### 2.2b — A run result (spec A5)
+
 - `StartAsync` returns a result: `Completed`, `Cancelled` or `Failed`, a message, and the
   card count per episode. A worker failure must no longer read as a cancel. The GUI
-  keeps its dialogs.
-- Tests: episodes {1, 3} through the pipeline give names, tags and the time-shift rule
-  of 1 and 3; a failing worker gives `Failed`, a cancel `Cancelled`.
+  keeps its dialogs (`GoAsync` may show them from the result).
+- Tests: a failing worker gives `Failed` with its message, a cancel `Cancelled`, a run
+  the card counts per episode.
 
 ### 2.3 — Checks, `go` runs the pipeline, the table (spec A3, A7)
 
@@ -230,6 +257,11 @@ Done: none yet.
   with the resolved episodes and `EpisodeNumbers`; progress on stderr; the season table
   and exit codes (spec "Design" 8). With snippet mode AI, refuse unless `--grouping
   rules|off` is given: the AI pre-pass is phase 2.4.
+- From 2.1: a season run must set the Subs patterns too, not only `Files` (the pipeline
+  reads `Subs[1].FilePattern != ""` at WorkerSrs.cs:259, 344 and WorkerSubs.cs:707, and
+  checks both patterns for VobSub at WorkerSubs.cs:66, 723); it must clear
+  `AudioClips.Files` (WorkerAudio.cs:67-68 indexes it even with audio from the video);
+  and it must call `UpdateAudioFilenameFormats()` itself.
 
 ### 2.4 — The AI pre-pass (spec A6)
 
@@ -286,3 +318,10 @@ season runs. Season mode must call `UpdateAudioFilenameFormats()` itself (patter
 `Resolve`). The project's Subs2 encoding applies to the `.en` file. `--yes`/`--verbose` are wired, unobserved.
 Left open: one Release UI run failed `PreviewGroupingScrollTests` ("leaked MainWindow", which hides the body's
 failure); not reproduced in 9 more runs; cause unknown. CI restore and Makefile lines: in the report.
+
+### Lead — 2026-10-04 — after phase 2.1
+Reviewed `ProjectFiles`, the `SaveSettings` diff, `EpisodeList` and `PrefIO`; Release unit
+575 passed / 4 skipped and the UI suite 5 times green on my own runs. Added the CI
+restore line and the Makefile entries (60737f0), pushed the subs2srs branch.
+Phase 2.1 used about 330k tokens: too big. I split the old 2.2 into 2.2 (A4) and 2.2b (A5),
+and moved 2.1's findings for real runs into 2.3's work order.

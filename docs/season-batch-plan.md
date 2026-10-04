@@ -492,7 +492,8 @@ redoing.
    - 2.1 A1 + A2: the project and the episode list (`go --dry-run`). The lead
      adds the CI restore line and the `Makefile` entries. Done 2026-10-04
      (4bd733a, 447d195, 2154efc).
-   - 2.2 A4 + A5: episode numbers and the run result.
+   - 2.2 A4: explicit episode numbers.
+   - 2.2b A5: the run result.
    - 2.3 A3 + A7: the checks, `go` running the pipeline, and the table.
    - 2.4 A6: the AI pre-pass.
    - 2.5 A8: packaging. 2.6: documentation.
