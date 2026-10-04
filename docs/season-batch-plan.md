@@ -15,8 +15,9 @@ Builds on the editor branch (`ui-editor`, PR #1), merged into `main` on
   point 9);
 - the refusal of a JP file that is not valid text in its encoding (C2).
 
-Most of the work is in subs2srs (`jhhr/subs2srs`). The plan is kept here because it
-started here. When subs2srs work begins, its half moves to that repository's `docs/`.
+Most of the work is in subs2srs (`jhhr/subs2srs`). The plan and the work orders stay
+in this repository: subs2srs's `AGENTS.md` keeps its `docs/` for lasting knowledge, not
+plans or per-phase status. Its last documentation phase writes the lasting parts there.
 
 ## The workflow
 
@@ -482,10 +483,11 @@ redoing.
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
      Done 2026-10-04 (66d5b18, eadb3e4; the lead's bc013aa, 566ca47).
    - 1.4 S4, documentation. Done 2026-10-04 (35ecf5f, 1e73193).
-2. **subs2srs A.** The biggest phase. Its agent phases are cut, and their work
-   orders written in subs2srs's `docs/`, once phase 1 is done. The draft cut:
-   - 2.1 A1 + A2: the project, its lock file and CI restore, and the episode
-     list (`go --dry-run`).
+2. **subs2srs A.** The biggest phase. Work orders in
+   `docs/season-work-orders-subs2srs.md`; branch `claude/hopeful-babbage-vrca6w`
+   in subs2srs.
+   - 2.1 A1 + A2: the project and the episode list (`go --dry-run`). The lead
+     adds the CI restore line and the `Makefile` entries.
    - 2.2 A4 + A5: episode numbers and the run result.
    - 2.3 A3 + A7: the checks, `go` running the pipeline, and the table.
    - 2.4 A6: the AI pre-pass.
