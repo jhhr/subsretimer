@@ -129,6 +129,11 @@ throwaway scripts in files in the scratchpad.
   part of the repository.
 - Phase 1.1b: `AutoAlign.CandidateOffsets` smooths the histogram (1-2-3-2-1 over ±2
   bins) before picking peaks, and `MaxCandidates` is 12. 146 unit and 55 UI tests pass.
+- Phase 1.2: `--report PATH` (`Options.Report`; records in `SubsRetimer/AutoReport.cs`;
+  `RetimerEngine.TargetMatched()` → `Coverage`). `RunAuto` computes the full output path
+  first, then `RemoveStaleReport` (refuses a report path equal to an input or the output,
+  and a missing folder), then loads. `reason`: null, `"below min-match"`, `"no timed
+  lines"`. Tests in `CliTests.Report.cs` (`CliTests` is `partial`). 157 unit tests pass.
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, RawIndex, ...), `SubtitleFile` +
   `RetimerIO` (load, save with the original encoding/BOM/newline, `DefaultOutputPath`,
   `OutputFormatProblem`), `RetimerEngine` (`ReferenceLines`, `TargetLines`, `HasBoth`,
@@ -152,7 +157,7 @@ throwaway scripts in files in the scratchpad.
 
 ## 4. Phases
 
-Done: 1.1, 1.1b.
+Done: 1.1, 1.1b, 1.2.
 
 ### 1.1 — Coverage and `--min-match` (spec S1)
 
@@ -331,3 +336,8 @@ Choices / deviations: the same-file refusal is mine (the delete would destroy TA
 `--auto` with one file stays exit 1 before the delete, a command-line error.
 The next phase must know: `Program.cs` untouched. Left open: `--report ""` fails in
 `Path.GetFullPath` (exit 1, no usage text).
+
+### Lead — 2026-10-04 — after phase 1.2
+Reviewed the diff; 157 passed on my own run. Ran the built exe on a pair with Japanese
+file names under `--min-match 0.9 --report`: exit 0, report readable, names unescaped.
+Kept the agent's two additions (same-file refusal, early missing-folder failure).
