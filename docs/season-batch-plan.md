@@ -504,7 +504,7 @@ redoing.
 3. **subs2srs B, C, D.** The script becomes one command, with automatic track
    choice and the season table. Work orders in `docs/season-work-orders-subs2srs.md`.
    - 3.1 B1 + B2: the track list and pick, and finding MKVToolNix in its Windows
-     install folder.
+     install folder. Done 2026-10-04 (bf4b5de).
    - 3.2 B3: extraction.
    - 3.3 C: the launcher's UTF-8 pipes and the retime stage.
    - 3.4 D: `subs2srs-cli season`.

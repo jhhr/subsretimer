@@ -746,3 +746,27 @@ may call a provider too; 3f31e62); pushed both repos. `release.yml` by hand on t
 (run 37227831045) was green: the CLI's `--version` and `go --help` passed the Windows
 smoke test, the zip holds both exes (62.5 MiB). Wrote the phase 3 work orders (3.1-3.5)
 with the facts checked in subs2srs at 3f31e62.
+
+### Phase 3.1 — 2026-10-04 — bf4b5de
+Built: `subs2srs/MkvTracks.cs`: `MkvTrackInfo` (Id, Type, Codec, CodecId, Language, LanguageIetf, Name, Forced,
+Default, `Events` = `num_index_entries`, null if absent; `IsText`/`IsImage`/`IsEnglish`; `Label` `3 "English" 312 ev`),
+`Parse(json)` → `MkvTrackList` (Tracks or Error), `Pick(tracks, trackId?)` → `MkvTrackPick` (Track or Reason),
+`ListAsync`/`PickAsync(file, trackId?, ct)` (never throw but on cancel), `RunnerOverride` (gets the `ProcessStartInfo`).
+`ConstantSettings.ExeMkvMerge`/`PathMkvMergeExeFull`; `ResolveTool` then `MkvToolNixDirs(isWindows, getEnv)`
+for mkvmerge/mkvextract/mkvinfo only, `MkvToolNixDirsOverride` for tests. Tests `MkvTracksTests` (44), fixtures
+`subs2srs.Tests/Fixtures/mkv` (two recorded verbatim with mkvmerge v82.0, relative `file_name`, so no paths; one
+hand-written), `[RequiresMkvToolnixFact]`. Seen failing when broken: forced not ignored, no install-folder fallback,
+no LC_ALL fix (the real test and the start-info test).
+Choices: WebVTT does not count (neither tool reads it). Missing or 0 count = 0, a tie goes to the lower id (mkvmerge
+82 writes `num_index_entries: 0`, not nothing, for a file without cues, and no `NUMBER_OF_FRAMES` tags any more).
+The override takes any ASS/SSA/SRT track, `jpn` and forced included (how a mistagged track is used). Exit code 1
+(warnings) is read as success, 2+ fails (deviation from "non-zero exit"). `enm` is not English. Reasons:
+`no subtitle track`, `only image subtitle tracks (PGS/VobSub), which need OCR`, `no English text subtitle track
+(2: image S_HDMV/PGS, 4: forced)`, `mkvmerge exited with code 2: The file '...' could not be opened ...`.
+Found: under the C/POSIX locale (this container, `LANG` unset) mkvmerge 82 drops a non-ASCII file argument (exit 2,
+"The file ''") or cannot open it, and cuts `-J` output at the first non-ASCII character (invalid JSON).
+`MkvTracks.StartInfo` sets `LC_ALL=C.UTF-8` when LC_ALL/LC_CTYPE/LANG is not UTF-8 and passes `--output-charset UTF-8`.
+The next phase must know: use `MkvTracks.StartInfo(exe, args)` for mkvextract too (same locale problem), and a full
+path (a name starting with `@` is an option file). `CliProcessResult` is reused as the runner's result.
+CI: the new real test skips without `mkvtoolnix` (apt) installed; the rest run anywhere (fake `mkvmerge` in a Tools Dir).
+Left open: `--output-charset UTF-8` on Windows is unverified (no Windows here). Unit 665 passed / 4 skipped (Debug, Release).
