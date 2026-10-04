@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.2)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.2b)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -144,6 +144,18 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   and `RestoreFrom`) and `Settings.EpisodeNumber(index)` (0-based; throws outside a set
   list) at all 36 former sites. Its length must equal the `Files` arrays'. Unit 583
   passed / 4 skipped, UI 22.
+
+- Phase 2.2b: `SubsProcessor.StartAsync` returns `Task<PipelineResult>`
+  (`subs2srs/PipelineResult.cs`: `Status` Completed/Cancelled/Failed, one-line
+  `Message` "<step label> failed: <detail>", `CardsPerEpisode` by index, context-only
+  lines left out). Cancelled only when the reporter's `Cancel` or token is set. The GUI's
+  dialogs are unchanged (a failed step still shows "Action cancelled." there).
+  `Settings.EpisodeCountForNames` (`int?`, `[JsonIgnore]`, cleared by `Reset`/
+  `RestoreFrom`, so set it **after** `ProjectIO.Load`) and
+  `Settings.EpisodeCountForPadding(runEpisodes)` drive the `episode_num` padding of the
+  five pipeline `UtilsName`s. Unit 594 passed / 4 skipped, UI 22.
+- Correction to the facts below: only a step that returns null/false used to become
+  `OperationCanceledException`; ffmpeg errors throw their own exception.
 
 Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
@@ -196,7 +208,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2.
+Done: 2.1, 2.2, 2.2b.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -267,17 +279,41 @@ Done: 2.1, 2.2.
   the card counts per episode; with `EpisodeCountForNames = 10` a two-episode run pads
   episode 3 as `03` in tags and media names, and null keeps today's names.
 
-### 2.3 — Checks, `go` runs the pipeline, the table (spec A3, A7)
+### 2.3 — Checks before starting (spec A3)
 
-- The checks of A3, shared with `GoAsync`; `go` without `--dry-run` runs `StartAsync`
-  with the resolved episodes and `EpisodeNumbers`; progress on stderr; the season table
-  and exit codes (spec "Design" 8). With snippet mode AI, refuse unless `--grouping
-  rules|off` is given: the AI pre-pass is phase 2.4.
-- From 2.1: a season run must set the Subs patterns too, not only `Files` (the pipeline
-  reads `Subs[1].FilePattern != ""` at WorkerSrs.cs:259, 344 and WorkerSubs.cs:707, and
-  checks both patterns for VobSub at WorkerSubs.cs:66, 723); it must clear
+- The checks of A3 as GTK-free code in `subs2srs/` (one function returning the problems
+  found, so the CLI can print them all at once), called by `GoAsync` in place of its
+  three emptiness checks, with the GUI's messages and confirm unchanged in wording where
+  they exist: output dir creatable and writable, deck name, ffmpeg found, the animated
+  snapshot encoder when that output is on, the audio-stream consistency across videos
+  (a warning: the GUI asks, the CLI refuses unless `--yes`), and `claude` found when
+  snippet mode is AI with a `terminal-` model (`ClaudeCli`).
+- `go --dry-run` runs the checks too and lists their results under the table.
+- Tests: each check on its own (a missing tool through the tools-dir override or a
+  PATH without it; an unwritable output dir), and `GoAsync`'s refusal through the UI
+  test harness for one of them.
+
+### 2.3b — `go` runs the pipeline, the table (spec A7)
+
+- `go` without `--dry-run`: load the project, resolve the episodes, run the checks, then
+  set up `Settings` for the run and call `StartAsync` with a stderr progress reporter
+  (copy `subs2srs.Eval`'s `ConsoleProgress`). Afterwards the season table (episode,
+  status, cards) on stdout and the exit codes of spec "Design" 8 (0, 3, 1, 130). Ctrl+C
+  cancels through the token.
+- Season mode setup, from 2.1 and 2.2b: set `Subs[0/1].FilePattern` as well as `Files`
+  (the pipeline reads `Subs[1].FilePattern != ""` at WorkerSrs.cs:259, 344 and
+  WorkerSubs.cs:707, and checks both patterns for VobSub at WorkerSubs.cs:66, 723); clear
   `AudioClips.Files` (WorkerAudio.cs:67-68 indexes it even with audio from the video);
-  and it must call `UpdateAudioFilenameFormats()` itself.
+  set `VideoClips.Files`, `EpisodeNumbers` (the resolved, non-skipped episodes) and
+  `EpisodeCountForNames` (the season's video count within Episode End #) after
+  `ProjectIO.Load`; call `UpdateAudioFilenameFormats()`.
+- With snippet mode AI, refuse unless `--grouping rules|off` is given (`--grouping`
+  overrides the project's mode for this run): the AI pre-pass is phase 2.4.
+- Tests (e2e, small: the test video, two or three episodes, rules grouping): a season
+  folder with episode 2's JP file missing gives exit 3, cards for 1 and 3 with their
+  numbers and stable padding, and the table; pattern mode with equal counts gives exit
+  0; a failing step gives exit 1 with the result's message; AI mode without `--grouping`
+  is refused.
 
 ### 2.4 — The AI pre-pass (spec A6)
 
@@ -394,3 +430,10 @@ Tests (`SubsProcessorE2ETests`): `CompletedRun_CountsTheCardsOfEachEpisode` ([3,
 exception type (missing mp3 read Cancelled), never Cancelled, the helper ignoring the count, cards by list length.
 The next phase must know: map `CardsPerEpisode[i]` through `Settings.EpisodeNumber(i)`; set `EpisodeCountForNames` after
 loading the project (`ProjectIO.Load` clears it). Unit 594 passed / 4 skipped, Debug and Release; no UI file touched.
+
+### Lead — 2026-10-04 — after phase 2.2b
+Reviewed `SubsProcessor` (CRLF kept) and `PipelineResult`; Release unit 594 / 4 skipped and
+UI 22 on my own run; pushed b912688. Split the old 2.3 into 2.3 (A3 checks, shared with
+`GoAsync`) and 2.3b (`go` runs, table, exit codes), with 2.1's and 2.2b's setup findings
+in 2.3b. Open for the docs phase: the GUI still says "Action cancelled." when a step
+failed; the result knows better, the dialog was kept by the spec.
