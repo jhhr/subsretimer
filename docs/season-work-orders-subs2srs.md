@@ -585,3 +585,25 @@ my own run; pushed e8f14b4. Kept the agent's choices: a cached episode after the
 still gets cards (it needs no request); *Remove duplicate lines* spans every ready episode
 before the drop (re-inactivating would change the cache keys). Phase 2.5 may edit the
 Makefile, `dist/` and `release.yml` (not `ci.yml`).
+
+### Phase 2.5 — 2026-10-04 — f0705c1, 3b373a1
+Built: `make build` also publishes `subs2srs.Cli` (framework-dependent, its own default publish dir); `make install`
+copies it into `$(LIBDIR)` after the app's files and installs `dist/subs2srs-cli.sh` as `$(BINDIR)/subs2srs-cli`;
+`uninstall` removes it. `publish-windows` and `release.yml` publish `subs2srs-cli.exe` self-contained into
+`out\win-x64` after `subs2srs.exe` (same `-p:Version`; the CLI's `--version` is subs2srs.dll's). `smoke.ps1` runs
+`--version` and `go --help` (Start-Process, streams in temp files, read as UTF-8, MSYS2 off PATH): exit 0 and an
+expected stdout line. `release.yml`: `workflow_dispatch` (version `0.0.0-dev` off a tag), attach only on a tag, the zip
+checked for both exes, `$PSNativeCommandUseErrorActionPreference` in the publish step (only the last command's exit code
+failed it before, so a failing `--locked-mode` restore went unnoticed). `bundle-gtk.ps1`: comments only.
+Checked: publishing both into one folder (clean tree each time, both orders) leaves all 206 win-x64 self-contained / 19
+linux files of an app-only publish byte-identical, `subs2srs.exe`/`.deps.json`/`.runtimeconfig.json` included (the CLI
+publish copies the referenced app's); `subs2srs.exe` stays GUI subsystem, `subs2srs-cli.exe` is console. Installed to
+a stage: the CLI's `--help`/`--version` exit 0, the GUI ran 12 s under Xvfb and wrote its preferences, a dry run through
+the wrapper with relative `--project`/`--season` works and opens no libgtk. Unit 621 passed / 4 skipped (Release).
+Found: "preferences are found by an absolute path" holds only when `~/.config` exists: `Environment.GetFolderPath`
+returns "" for a missing folder, so `SettingsFilename`, `LogDir`, `AiCacheDirFull` and `ClaudeCli.WorkDir` become
+relative and resolve under the cwd (seen: `subs2srs/Logs/log-*.txt` in the project folder; the GUI's launcher hides it
+with its `mkdir` and `cd`). The CLI wrapper therefore creates `~/.config` and `~/.local/share` (no cd). Running
+`/usr/lib/subs2srs/subs2srs-cli` directly still has it; the app fix is `SpecialFolderOption.DoNotVerify`, for the lead.
+Left open: the Windows zip and smoke are unrun (no Windows here); the CLI exe has no `app.manifest` (no long-path or
+UTF-8 code page manifest) and no icon; each `go` leaves an empty `log-*.txt` in the Logs folder (logging off).

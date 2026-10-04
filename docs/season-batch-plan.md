@@ -506,7 +506,8 @@ redoing.
    - 2.3b A7: `go` runs the pipeline; the table and exit codes. Done
      2026-10-04 (6a60ac4, 08f7e99).
    - 2.4 A6: the AI pre-pass. Done 2026-10-04 (e8f14b4).
-   - 2.5 A8: packaging. 2.6: documentation.
+   - 2.5 A8: packaging. Done 2026-10-04 (f0705c1, 3b373a1).
+   - 2.6: documentation.
 
    A9's tests are written by the phase that builds each behaviour. After phase
    2, the PowerShell script below also makes the cards, with skipped episodes
