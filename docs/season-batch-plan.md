@@ -200,7 +200,7 @@ align by hand, then run again:
     yet.
   - A `windows-latest` unit-test job in `ci.yml`. Today the only Windows run is
     the smoke test, at release time.
-    `CliTests.RealProcess_HonoursStdoutContract` (`CliTests.cs:489`) will fail
+    `CliTests.RealProcess_HonoursStdoutContract` (`CliTests.cs:645`) will fail
     there as written: it expects the path followed by `"\n"`, and `WriteLine`
     ends lines with `"\r\n"` on Windows. The subs2srs launcher trims every
     line, so the contract itself holds; the test should compare against
@@ -424,7 +424,8 @@ redoing.
       shows the time per episode.
 1. **subsretimer S1 to S4.** This repository, four agent phases (work orders in
    `docs/season-work-orders.md`):
-   - 1.1 S1, the coverage number and `--min-match`.
+   - 1.1 S1, the coverage number and `--min-match`. Done 2026-10-04
+     (a86e27c, e831e27).
    - 1.2 S2, `--report`.
    - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
@@ -670,7 +671,7 @@ repository.
   then `PATH`.
 - subsretimer `--auto` with an explicit `--output` overwrites (`Cli.RunAuto`).
   `CliTests.RealProcess_HonoursStdoutContract` runs `dotnet subsretimer.dll`
-  and expects stdout to be exactly the path plus `"\n"` (`CliTests.cs:489`).
+  and expects stdout to be exactly the path plus `"\n"` (`CliTests.cs:645`).
 - After the editor merge, subsretimer's command line (`SubsRetimer/Cli.cs`)
   behaves as follows:
   - `LoadChecked` refuses a TARGET with bytes invalid in its encoding

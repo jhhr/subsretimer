@@ -207,3 +207,27 @@ Template:
     Choices / deviations: ...
     The next phase must know: ...
     Left open: ...
+
+### Phase 1.1 — 2026-10-04 — a86e27c, e831e27
+Built: `RetimerEngine.CoverageFlags(lines, others)` (static; true = the union of `others`
+covers at least half the line; a line with no duration is false) and `ReferenceCoverage()`
+→ `Coverage(Covered, Counted)` with `Share` (0..1; 0 when nothing is counted) and `Percent`
+(rounded down in integer arithmetic). The record is in `RetimerEngine.cs`. Neither list
+need be sorted. `Cli`: `--min-match FRACTION` (`Options.MinMatch`, `double?`, null if not
+given); stderr: segments, mismatch, `reference covered: 50% (60 of 120 lines)`, then either
+`subsretimer: reference covered 50% is below --min-match 0.9; nothing saved` (exit 2,
+before `Save`) or `saved ...`.
+Choices / deviations: both refusals (a bad value, no `--auto`) are thrown in `Cli.Parse`,
+so the usage text follows as for other bad options. The percentage is floored, so a 100%
+means every line and a shown percentage never exceeds the share compared. The mismatch
+line is now invariant too: in-process tests run in the machine's culture (fi-FI here);
+the shipped exe has InvariantGlobalization.
+Numbers: `AutoAlignTests` right pair (300 lines, start and end each ±250 ms, 15% split,
+15% cues, cuts of 4, 15 and 8 s) 0.997, wrong pair (seed 2) 0.497. Scratch run over 20
+seeds: right 0.91 to 0.997, wrong 0.43 to 0.57.
+The next phase must know: the report's coverage fields come from `engine.ReferenceCoverage()`
+(after `Apply`). The share of target lines matched (S2) is not built.
+Left open: in 3 of those 20 seeds AutoAlign gave the 40-line leading block a wrong offset:
+with ±250 ms jitter each true offset fills two of the 8 candidate slots (±3-bin
+suppression), and -4 s was not among them. Coverage stayed 0.91 to 0.93, so a 0.9
+threshold would not catch it (S1 says as much). Core tuning, not this phase.
