@@ -1003,3 +1003,7 @@ The next phase must know: give `FindJpFiles` every video of the folder; resolve 
 episodes not kept); a failed extraction is `FoundFile.Missing(..)`; `--dry-run` must not call `RetimeAsync` (it deletes). Keep-if-
 newer trusts mtimes: a JP file copied with its old time (Explorer keeps it) leaves the old retime kept; `--force` redoes it.
 Unit 775 passed / 4 skipped (Debug, Release; `SUBSRETIMER_EXE` = fresh build), 771 / 8 skipped unset (Release). No UI file touched.
+After the lead's review, 75c7246: no JP or no EN file (none, or a second candidate) deletes nothing, so an editor fix survives a
+lookup problem; not `Ready`, so season gives go only Ready episodes. A tag is one or more non-empty dot-separated words (`ja.cc`),
+English when any word is `en`/`eng`. The column says `2 segments, 97% of EN covered` (`RetimeReport.Segments` doc fixed too).
+Unit 782 / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 778 / 8 unset (Release).
