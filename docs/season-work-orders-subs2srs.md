@@ -1172,3 +1172,10 @@ Found: ci.yml's `push: branches: [default]` matches only a branch named `default
 no CI (open-items; not fixed, `.github/`). Each CLI run's empty log rotates out older logs (10 kept): my
 runs' 5 deleted, but rotation had already removed 5 older ones (21:58-22:01). `SubsRetimerLauncher.IsAvailable`'s comment
 ("found on PATH at startup") is stale. The script's code block is unchanged (byte-identical), not re-run.
+
+### Lead — 2026-10-04 — after phase 3.5 (phase 3 complete)
+Reviewed the README's `season` section and the spec's End state against the code and
+the agent's real runs; fixed the one stale comment it reported (`IsAvailable`, 52acf23);
+pushed 18fc184 and 52acf23. Phase 3 is done. Left for the user: phase 0 on Windows (the
+`--min-match` default; the Windows paths of phase 3 by hand), CI's `push: branches:
+[default]` (open-items), the stray `/dummy`, and the subs2srs pull request's description.
