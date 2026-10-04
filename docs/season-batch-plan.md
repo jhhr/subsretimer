@@ -181,7 +181,7 @@ align by hand, then run again:
     yet.
   - A `windows-latest` unit-test job in `ci.yml`. Today the only Windows run is
     the smoke test, at release time.
-    `CliTests.RealProcess_HonoursStdoutContract` (`CliTests.cs:475`) will fail
+    `CliTests.RealProcess_HonoursStdoutContract` (`CliTests.cs:489`) will fail
     there as written: it expects the path followed by `"\n"`, and `WriteLine`
     ends lines with `"\r\n"` on Windows. The subs2srs launcher trims every
     line, so the contract itself holds; the test should compare against
@@ -633,7 +633,7 @@ repository.
   then `PATH`.
 - subsretimer `--auto` with an explicit `--output` overwrites (`Cli.RunAuto`).
   `CliTests.RealProcess_HonoursStdoutContract` runs `dotnet subsretimer.dll`
-  and expects stdout to be exactly the path plus `"\n"` (`CliTests.cs:475`).
+  and expects stdout to be exactly the path plus `"\n"` (`CliTests.cs:489`).
 - After the editor merge, subsretimer's command line (`SubsRetimer/Cli.cs`)
   behaves as follows:
   - `LoadChecked` refuses a TARGET with bytes invalid in its encoding
