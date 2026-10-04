@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.1)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.2)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -196,6 +196,16 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   `%ProgramFiles(x86)%\MKVToolNix` after PATH for the three mkv tools on Windows
   (`MkvToolNixDirs`, `MkvToolNixDirsOverride`). `[RequiresMkvToolnixFact]`. Fixtures in
   `subs2srs.Tests/Fixtures/mkv/`. CI installs MKVToolNix (d7911ff). Unit 665 / 4 skipped.
+- Phase 3.2: `subs2srs/MkvExtract.cs`: `Extension(codecId)`, `OutputPath(season, video,
+  track)` (`<season>/s2s/<video name>.en.<ext>`), `ExtractAsync(mkv, trackId, output, ct)`
+  → `MkvExtractResult` (`Extracted`/`Kept`/`Failed`, `OutputPath`, `Reason`); a non-empty
+  existing output is `Kept` before the tool is even looked for; failures and cancels
+  delete the partial file; `RunnerOverride`. mkvextract 82 writes ASS and SRT as UTF-8
+  with a BOM, LF, and reports errors on stdout. `MkvTracks.RunAsync` is internal and
+  shared. "Kept" means that exact path: an earlier `.en.srt` beside a new `.en.ass`
+  makes two `.en` files, which `go` skips; 3.4 decides. Unit 694 / 4 skipped.
+- Windows mkvmerge has no `--command-line-charset` (the test helper `Mux` passed it;
+  fixed in a53049d). `--output-charset UTF-8` on Windows is checked by CI from a53049d.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -253,7 +263,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5, 2.6 (phase 2 complete), 3.1.
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5, 2.6 (phase 2 complete), 3.1, 3.2.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -817,3 +827,8 @@ The next phase must know: "kept" is the exact path only: an `.en.srt` from an ea
 track picked) gives two `.en` files and `go` skips the episode ("2 .en files"); 3.4 should decide (keep any one `.en.*`?).
 Reasons from mkvextract hold full paths. Left open: Windows unchecked (line endings, `--output-charset`); the real cancel
 (kill, wait, delete) is tested only through the scripted runner. Unit 694 passed / 4 skipped (Debug, Release); no UI file.
+
+### Lead — 2026-10-04 — after phase 3.2
+Reviewed `MkvExtract`; Release unit 694 / 4 skipped on my own run; pushed 2f77756. CI
+with MKVToolNix: Linux green; Windows failed one test in the helper `Mux`
+(`--command-line-charset` is not an option there), fixed in a53049d.
