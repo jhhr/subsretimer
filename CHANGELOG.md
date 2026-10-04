@@ -25,6 +25,7 @@
 - The replace-target prompt asks about opening the new file, not about closing; a target dropped while a prompt is up is refused instead of accepted and ignored; and closing the window while that prompt is up closes it once the prompt is answered instead of being lost.
 - On Wayland the running editor is matched to its desktop entry, and so gets its icon: the entry is installed as `io.github.jhhr.subsretimer.desktop`, the application id, and carries `StartupWMClass=subsretimer` for X11.
 - A machine without GTK 4 is told that GTK 4 could not be loaded, not that there is no display.
+- The editor and `--check-editor` start with GTK 4.18 and newer, the GTK the Windows build bundles: there the process aborted with `gdk_display_open() was called before gtk_init()` while checking for a display.
 - An exception while the editor window starts reaches the command line as `subsretimer: the editor failed: ...` and exit 1, instead of GirCore ending the process with a stack trace.
 - Left/Right, right-click, gap jumps and the gray rows find the right counterpart after a Time Shift that moved target lines before the ones above them.
 - Rows scrolled into view could miss the in-place refresh after a shift and keep showing the old time.

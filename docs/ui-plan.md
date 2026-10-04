@@ -146,11 +146,20 @@ So that phases do not re-derive them:
   `gtk_init()`, which prints "Failed to open display" and **exits the
   process** when there is none, and every GTK or GDK call before it fails
   with `DllNotFoundException` because that method is what installs GirCore's
-  library resolver. `Gdk.Module.Initialize()` installs the resolver alone;
-  `Gdk.Display.GetDefault()` is null until something opens a display, so the
-  question is answered by `Gdk.Display.Open(null)` returning null. A display
-  opened that way becomes the default and is reused by GTK afterwards.
-  `EditorHost.CanOpenDisplay` does exactly this.
+  library resolver. `Gdk.Module.Initialize()` installs the resolver for GDK
+  alone, and until 2026-10-04 the question was answered by
+  `Gdk.Display.Open(null)` returning null. That holds up to GTK 4.16 only:
+  since 4.18 `gdk_display_open()` aborts the process when it runs before
+  `gtk_init()` (`gdk_ensure_initialized()` in GDK's source; met with MSYS2's
+  GTK 4.24.0, the first GTK newer than Ubuntu's 4.14 this code ran against).
+  `EditorHost.Probe` now calls `Gdk.Module.Initialize()` and then
+  `gtk_init_check()` through its own import of libgtk-4: it initialises GTK
+  and returns false when no display opens, and the `gtk_init()` GirCore runs
+  afterwards finds GTK initialised. The order matters on Windows (both
+  measured): `Gdk.Module.Initialize()` is also what moves the thread into the
+  single-threaded apartment, without which GDK aborts with "OleInitialize
+  failed", and it throws on a thread that is already STA, so `Main` must not
+  be `[STAThread]`.
 - subs2srs starts GTK with `Gtk.Application.New(id, Gio.ApplicationFlags.FlagsNone)`
   and `RunWithSynchronizationContext(null)` (`subs2srs/Program.cs` line 75).
   Its UI test fixture uses `ApplicationFlags.NonUnique`, `Hold()` to keep the
@@ -303,17 +312,24 @@ checklist below:
   (`ChartClick`), and for a file dropped on a pane, where the test does call
   the handler, `DropFile`, with the `GObject.Value` a drop would carry — but a
   real drag from a file manager is still unproven.
-- The editor window on Windows. `dist/windows/smoke.ps1` checks the bundle's
-  layout, `--version`, `--check-editor` (GTK loads from the bundle, a display
-  opens, `gtk_init()` reads the bundled schemas) and `--auto`, and
-  deliberately does not look for a window: a console process's
+- The editor window on Windows, beyond its start. `dist/windows/smoke.ps1`
+  checks the bundle's layout, `--version`, `--check-editor` (GTK loads from
+  the bundle, a display opens, `gtk_init()` reads the bundled schemas) and
+  `--auto`, and deliberately does not look for a window: a console process's
   `MainWindowHandle` is its console, so that check would pass with no GTK at
-  all. Neither PowerShell script has run on Windows. In phase 12 `smoke.ps1`
-  was parsed by PowerShell 7 and its steps after the layout check ran on
-  Linux against the Linux build; `bundle-gtk.ps1` has never run. Both pass
-  PSScriptAnalyzer's compatibility rules for Windows PowerShell 5.1 (syntax,
-  commands and parameters, .NET types), which `make publish-windows` uses
-  when PowerShell 7 is not installed.
+  all. `make publish-windows` ran through on Windows 10 on 2026-10-04, both
+  scripts under Windows PowerShell 5.1, with GTK 4.24.0 from MSYS2 UCRT64.
+  The editor was then started from the bundle with MSYS2 off the `PATH` and
+  two files: its window appeared (found by GDK's window class, titled with
+  the target's name) and closing it ended the process with exit 2. What the
+  window shows, its icon, the keys and the mouse stay on the checklist; so
+  does GLib's warning on stderr at that start, "win32 session dbus binary
+  not found" (no `gdbus.exe` in the bundle).
+- The Linux side of the display probe as changed on 2026-10-04
+  (`gtk_init_check()` instead of `gdk_display_open()`, see "Facts checked"):
+  written and run on Windows only, so CI's unit and UI test jobs are its
+  first run on Linux, and with Ubuntu's GTK 4.14 they do not show the GTK
+  4.18 behaviour that made the change necessary.
 - The Wayland side of the desktop entry. On X11 the window's `WM_CLASS` is
   `subsretimer` (measured with `xprop` under Xvfb), which `StartupWMClass`
   names; on Wayland GTK 4 sends the application id as the app_id, which the

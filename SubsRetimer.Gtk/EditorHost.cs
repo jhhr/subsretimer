@@ -2,6 +2,7 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using SubsRetimer.Core;
 
@@ -64,12 +65,17 @@ namespace SubsRetimer.Editor
     ///
     /// GirCore 0.7 gives no gentler route: <c>Gtk.Module.Initialize()</c>
     /// calls <c>gtk_init()</c>, which prints "Failed to open display" and
-    /// <em>exits the process</em> when there is none, and every other GTK or
-    /// GDK call before it fails to find the shared library at all.
-    /// <c>Gdk.Module.Initialize()</c> only installs GirCore's library
-    /// resolver, and <c>gdk_display_open</c> then answers the question by
-    /// returning null. A display opened here becomes the default display and
-    /// is reused by the GTK initialisation that follows.
+    /// <em>exits the process</em> when there is none, and every other GTK
+    /// call before it fails to find the shared library at all. Opening the
+    /// display alone, before GTK is initialised, is not a way either: since
+    /// GTK 4.18 <c>gdk_display_open()</c> aborts the process when it is
+    /// called before <c>gtk_init()</c>. So the question is put to
+    /// <c>gtk_init_check()</c>, which initialises GTK and answers false,
+    /// and nothing more, when no display opens.
+    ///
+    /// GTK is therefore initialised, on the calling thread, once this has
+    /// answered <see cref="EditorStatus.Ready"/>; the GTK initialisation that
+    /// follows finds it done and reuses the display.
     /// </summary>
     public static EditorProbe Probe() => Probe(OpenDisplay);
 
@@ -93,13 +99,12 @@ namespace SubsRetimer.Editor
     }
 
     /// <summary>
-    /// <see cref="Probe()"/>, and once the display is open GTK's own
-    /// initialisation as well, which is what <c>--check-editor</c> runs. That
-    /// step reads GTK's data files (on Windows <c>gtk_init()</c> aborts
-    /// without the bundled GSettings schemas), so a broken bundle fails the
-    /// check instead of the first real start. Not part of
-    /// <see cref="Probe()"/>: GTK belongs to the thread that initialises it,
-    /// and a probe must not choose that thread for whoever runs GTK next.
+    /// <see cref="Probe()"/>, and once GTK is initialised GirCore's own
+    /// start as well, which is what <c>--check-editor</c> runs. Initialising
+    /// GTK reads its data files (on Windows it aborts without the bundled
+    /// GSettings schemas), and GirCore then registers the types of every
+    /// library the editor uses, so a broken bundle fails the check instead
+    /// of the first real start.
     /// </summary>
     public static EditorProbe ProbeStart()
     {
@@ -118,10 +123,36 @@ namespace SubsRetimer.Editor
 
     private static bool OpenDisplay()
     {
+      // First, and not only for GirCore's library resolver: on Windows it also
+      // moves this thread into the single-threaded apartment, without which
+      // GDK aborts there with "OleInitialize failed".
       Gdk.Module.Initialize();
-      if (Gdk.Display.GetDefault() != null) return true;
-      return Gdk.Display.Open(null!) != null;
+      if (!InitCheck()) return false;
+      // gtk_init_check() answers true to every call after the first, whether
+      // or not that one found a display; the default display tells.
+      return Gdk.Display.GetDefault() != null;
     }
+
+    /// <summary>
+    /// <c>gtk_init_check()</c>. Imported here, under the file names GirCore
+    /// loads GTK by, because GirCore's own import of it only resolves after
+    /// <c>Gtk.Module.Initialize()</c>, and that calls <c>gtk_init()</c>.
+    /// </summary>
+    private static bool InitCheck()
+    {
+      if (OperatingSystem.IsWindows()) return InitCheckWindows();
+      if (OperatingSystem.IsMacOS()) return InitCheckMacOS();
+      return InitCheckLinux();
+    }
+
+    [DllImport("libgtk-4-1.dll", EntryPoint = "gtk_init_check")]
+    private static extern bool InitCheckWindows();
+
+    [DllImport("libgtk-4.1.dylib", EntryPoint = "gtk_init_check")]
+    private static extern bool InitCheckMacOS();
+
+    [DllImport("libgtk-4.so.1", EntryPoint = "gtk_init_check")]
+    private static extern bool InitCheckLinux();
 
     /// <summary>The first line of a loader message; .NET's DllNotFoundException runs to a dozen.</summary>
     private static string FirstLine(string message)
