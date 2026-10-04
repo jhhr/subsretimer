@@ -511,6 +511,7 @@ redoing.
    - 3.3b C1 + C2: the JP lookup and the retime stage. Done 2026-10-04
      (3ac375a).
    - 3.4 D: `subs2srs-cli season`, its extract and retime stages and their table.
+     Done 2026-10-04 (dd759c0).
    - 3.4b D: `season` makes the cards with `go`, in the same process and table.
    - 3.5: documentation.
 4. **Optional: E.**

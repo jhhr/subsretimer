@@ -1025,3 +1025,29 @@ problem, "segments", dotted tags), reviewed 75c7246. Release unit 782 / 4 skippe
 green on both jobs, the Windows real-child cancel test included. Split 3.4 into 3.4
 (the command, extract and retime) and 3.4b (`go` inside `season`), with the open points
 decided in their work orders.
+
+### Phase 3.4 — 2026-10-04 — dd759c0
+Built: `subs2srs.Cli/SeasonCommand.cs`: `SeasonEpisode` (one mutable row per episode: `Video`, `Pick`, `Extraction`, `En`, `Jp`,
+`Retime`, dry-run `EnPlan`/`RetimePlan`, `Cancelled`), `SeasonColumn(Header, Cell)`, `SeasonCommand.RunAsync` (load, videos via
+the new `EpisodeList.SeasonVideos` cut at Episode End #, MKVToolNix required up front unless `--only retime`, JP files from every
+video, retime options once, then per episode pick → delete the episode's other `.en.*` (with `--force` its own too) → extract →
+retime), `Columns(options)`, `PrintReport` (table, track note, `retimed JP files: k of n episodes; exit N` or `EN files: ...`,
+"align by hand, then run again:" + commands), `TrackNote`. `CliOptions`: `season <dir>` positional, `--track`, `--min-match` (0-1,
+invariant, as subsretimer), `--force`, `--only extract|retime` (`SeasonStage`), usage text; season-only options refused for go and
+`--season`/`--grouping` for season. `CliRunner.LoadProject` internal; `RetimeStage.WouldKeep` (shared by the run and the dry run),
+`Delete`, `PathComparison` internal. `MkvTrackList.ContainerType`; `PickAsync` refuses a non-Matroska container (an MP4 named .mkv:
+mkvmerge lists its tracks, mkvextract fails "no EBML head").
+Tests `CliSeasonTests` (26; 4 real MKVToolNix), `MkvTracksTests` +1. Seen failing when broken: other `.en` not deleted (`--track`
+test), MKVToolNix required for `--only retime`, the container check. Also run by hand on a real muxed season with the real subsretimer
+(retimed, below --min-match with its command, kept on the re-run).
+Choices: EN is extracted even without a JP file (as `--only extract` would; cheap; the next run needs it). No pick (no track, mkvmerge
+error) deletes no `.en` file. The retime of an episode without a track says `no EN track` (the EN track column says why); a failed
+extraction says `extraction failed: <mkvextract's reason>`. Tables: full run Episode/EN track/Retime; `--only extract` Episode/EN
+track/EN file (`extracted`/`kept`/`failed: ..`); `--only retime` Episode/Retime; dry run adds EN file (`to extract`, `kept`, `to
+extract again`, `; deletes <names>`), JP file, Retime (`kept`/`to retime`/the problem); no exit line on a dry run (as go). The track
+note groups by id + name, names groups of up to 3 episodes, and suggests `--track` only when not given. A cancel prints the table
+(rows not done `cancelled`) then exits 130. `--track` with `--only retime` and `--min-match` with `--only extract` are usage errors.
+A missing subsretimer is not checked up front (3.3b's rule); a dry run warns. Per-episode stderr lines `[k/n] <name>: ...`, real
+runs only. For 3.4b: append AI/Status/Cards to `Columns`, replace the last line by go's TSV line; `SeasonEpisode.Video` is the
+same full path `EpisodeList.FromSeason` gives.
+Unit 809 passed / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 805 / 8 skipped unset (Release). No UI file touched.
