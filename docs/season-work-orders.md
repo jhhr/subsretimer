@@ -111,10 +111,22 @@ throwaway scripts in files in the scratchpad.
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, before phase 1.1)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 1.1)
 
-- The editor branch is merged (`main` at `a209301`, merged into this branch). 121 unit
-  tests pass.
+- The editor branch is merged (`main` at `a209301`, merged into this branch). 143 unit
+  tests pass after phase 1.1.
+- Phase 1.1 added `RetimerEngine.CoverageFlags(lines, others)` (static; the union of
+  `others` covers at least half the line), `ReferenceCoverage()` → `Coverage(Covered,
+  Counted)` with `Share` (0..1) and `Percent` (floored), `Cli.Options.MinMatch`
+  (`double?`) and the gate in `RunAuto` (after `Apply`, before `Save`, exit 2). stderr
+  of `--auto`: file line, segments, `average mismatch ...`, `reference covered: 97% (291
+  of 300 lines)`, then `saved ...` or the gate line. All of it invariant culture: the
+  test host's culture is fi-FI, so a number formatted in the current culture prints
+  `0,5` in in-process tests.
+- `AutoAlignTests.ClosedCaptions(dialogue, cuts, seed)` builds a CC-style target with
+  known cuts, ±250 ms jitter, split lines and sound cues. A scratch harness at
+  `$S/sim` (`Program.cs`, references Core) sweeps seeds and prints coverage; it is not
+  part of the repository.
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, RawIndex, ...), `SubtitleFile` +
   `RetimerIO` (load, save with the original encoding/BOM/newline, `DefaultOutputPath`,
   `OutputFormatProblem`), `RetimerEngine` (`ReferenceLines`, `TargetLines`, `HasBoth`,
@@ -138,7 +150,7 @@ throwaway scripts in files in the scratchpad.
 
 ## 4. Phases
 
-Done: none yet.
+Done: 1.1.
 
 ### 1.1 — Coverage and `--min-match` (spec S1)
 
@@ -159,6 +171,28 @@ Done: none yet.
   `--output` untouched, the threshold met saves as before, the option refused without
   `--auto` and out of range, the coverage line on stderr.
 - Not in this phase: `--report`, README/CHANGELOG.
+
+### 1.1b — Candidate offsets that survive jitter (corrective; spec "Remaining points")
+
+Found in 1.1: in 3 of 20 seeded CC-style pairs, auto-align gave the 40-line leading
+block a wrong offset (+28 to +87 s). The start differences of two subtitlers' timings
+spread each true offset's histogram peak over more than the ±3-bin suppression in
+`AutoAlign.CandidateOffsets`, so one offset takes two of the 8 candidate slots, the
+slots run out, and a true offset (−4 s there) is never a candidate. Real JP/EN pairs
+differ by a few hundred ms per line, so this is likely in phase 0 too.
+
+- Reproduce first: a seeded test on `ClosedCaptions` where lines end up more than 1 s
+  from their true offset today (the cuts are known, so the true offset of every target
+  line is too). Keep it as the regression test.
+- Fix it in `CandidateOffsets` with the smallest change that removes it, for example
+  smoothing the histogram over neighbouring bins before picking peaks, or more
+  candidates. Do not change the DP, the switch penalty, `Refine` or `MergeSimilar`.
+- Acceptance: every existing test passes unchanged. A sweep in the scratch harness
+  (20 seeds or more; jitter 0, 100, 250 and 400 ms; the 1.1 cuts and one other cut
+  layout) counts lines misplaced by more than 1 s, before and after: put that table in
+  the report. A 1,000-line pair still aligns well under a second.
+- Not in this phase: the short leading block folded into the next segment (switch
+  penalty) and the clamp at 0:00:00, both in `docs/ui-plan.md`, "Known limitations".
 
 ### 1.2 — `--report PATH` (spec S2)
 
@@ -231,3 +265,10 @@ Left open: in 3 of those 20 seeds AutoAlign gave the 40-line leading block a wro
 with ±250 ms jitter each true offset fills two of the 8 candidate slots (±3-bin
 suppression), and -4 s was not among them. Coverage stayed 0.91 to 0.93, so a 0.9
 threshold would not catch it (S1 says as much). Core tuning, not this phase.
+
+### Lead — 2026-10-04 — after phase 1.1
+Reviewed the Core diff (union, binary search, half rule) and the gate; 143 passed on my
+own run. Added phase 1.1b for the candidate-offset finding above, before 1.2: phase 0 on
+real episodes is where it would show, and the fix is local to `CandidateOffsets`. Phase
+1.1 used about 200k tokens, mostly on the 20-seed exploration; later phases should keep
+experiments to what their work order asks.

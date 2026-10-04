@@ -426,6 +426,10 @@ redoing.
    `docs/season-work-orders.md`):
    - 1.1 S1, the coverage number and `--min-match`. Done 2026-10-04
      (a86e27c, e831e27).
+   - 1.1b (corrective, found in 1.1): candidate offsets that survive the few
+     hundred ms by which two subtitlers' timings differ. Without it a true
+     offset can be missing from the 8 candidates, and a whole block lands
+     tens of seconds off.
    - 1.2 S2, `--report`.
    - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
