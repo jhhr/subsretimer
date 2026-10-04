@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.2)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.3)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -207,8 +207,25 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
 - Windows mkvmerge has no `--command-line-charset` (the test helper `Mux` passed it;
   fixed in a53049d). CI is green on a53049d on both jobs, so the real mkvmerge and
   mkvextract tests (`--output-charset UTF-8` included) pass on Windows too.
-- The user opened jhhr/subs2srs#5 from this branch (to `main`); every push runs CI
-  twice (push and pull_request).
+- The user opened jhhr/subs2srs#5 from this branch (to `main`). `main` was merged in
+  (95d3dfe): CI now runs on push only for the default branch, so a push to this branch
+  is checked by the pull request's run alone.
+- After phase 3.3 (152bfb7): `SubsRetimerLauncher.StartInfo(exe, request)` uses
+  `makeToolStartInfo`; `RunAsync` goes through `RunnerOverride ??
+  UtilsCommon.RunToolAsync` (the one shared process loop, also used by `MkvTracks` and
+  `MkvExtract`): a cancel kills the tool and throws `OperationCanceledException`; tool
+  failures come back as `Result.Failed` with the message in `StdErr`. `Request` has
+  `OutputPath`, `MinMatch` (`double?`), `ReportPath`. `RetimeReport.Read(path)` →
+  `ExitCode`, `Saved`, `Segments`, `ReferenceCoverage` (share or null), `Reason`
+  (`RetimeReport.BelowMinMatch` / `NoTimedLines`), null when unreadable.
+  `SubsRetimerLauncher.EditorCommand(exe, request)` prints no `--`, so give it full
+  paths. Report fixtures in `subs2srs.Tests/Fixtures/retime/`. Unit 734 / 4 skipped.
+- **`SUBSRETIMER_EXE`**: this container sets it to `/opt/subsretimer/subsretimer`, a
+  2026-09-28 build without `--min-match`/`--report`, and the real-tool tests fail with
+  it. Run the suites with `SUBSRETIMER_EXE=$S/subsretimer-bin/subsretimer` (subsretimer
+  at 5d8475e, built by phase 3.3; rebuild it there from `/home/user/subsretimer` with
+  `dotnet build SubsRetimer/SubsRetimer.csproj -c Release -o $S/subsretimer-bin` if it is
+  missing). Unset, the real-tool tests skip (7 skips): CI runs that way.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -536,7 +553,8 @@ Command-line only: `subs2srs.Cli/`, next to `EpisodeList` (which already finds
   from the report) / below `--min-match` (`41%`) / no timed lines / failed (the
   tool's message for exit 1; subsretimer not found) / no JP file (the names) / no EN
   file; and for exit 2 the editor command (3.3's `EditorCommand`). An exit 1 gets no
-  command (Design 9). A cancel propagates.
+  command (Design 9). A cancel propagates. The command's paths are full paths (it has no
+  `--`); its exe is `subsretimer` when PATH finds that same file, else the full path.
 - For `--only retime` 3.4 needs the EN file without extracting: the one `s2s/<video
   name>.en.*` (none or several: the reason). Provide it here.
 - Tests: the JP lookup (pure); keep-if-newer, `force`, the stale-output delete and the
@@ -910,3 +928,11 @@ PowerShell may drop it), so 3.3b must pass full paths. Windows quoting follows t
 End state's single quotes; it is checked as strings only (no PowerShell here). 3.3b picks the exe name to print.
 Docs stale for 3.5: architecture.md's launcher section, testing.md ("return" when unset), open-items deferred item 2.
 Unit 734 passed / 4 skipped (Debug, Release; `SUBSRETIMER_EXE` = fresh build); UI 23 passed.
+
+### Lead — 2026-10-04 — after phase 3.3
+Reviewed the launcher, `RetimeReport`, `RunToolAsync` and the dialog change; Release unit
+734 / 4 skipped (fresh `SUBSRETIMER_EXE`) and 731 / 7 skipped (unset, as CI); UI 23
+passed. Merged `main` (ec77996, CI triggers) as the user asked: 95d3dfe, pushed. Kept
+the agent's choices. For 3.3b: print the exe in the editor command as `subsretimer`
+when PATH finds that same file, else its full path. The Windows branch of the
+real-child cancel test runs first on CI.
