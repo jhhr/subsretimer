@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.3b)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.4)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -173,6 +173,12 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   N`. `PipelineResult.ImportFile` (from `WorkerSrs.ImportFile`); a Failed or Cancelled
   run deletes its partly written TSV. Exit 0/3/1/130; no ready episode → table, exit 3,
   no pipeline. Unit 614 / 4 skipped, UI 23.
+- Phase 2.4: `subs2srs.Cli/AiPrePass.cs` (`FirstSteps`, `Run`, `DropSkipped`,
+  `KeepEpisodes`); outcomes `cached`, `grouped`, `k/n by rules` (kept, warned), `usage
+  limit`, `failed` (skipped). Once the limit is set, only episodes needing a request are
+  skipped (a cached one still runs). `go` then calls `StartAsync(progress, combinedAll,
+  joins)`; the table has an `AI` column; `--dry-run` shows `cached`/`not cached`.
+  Tests `CliAiPrePassTests`. Unit 621 / 4 skipped.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -230,7 +236,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3, 2.3b.
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -572,3 +578,10 @@ and media; `KeepEpisodes` unit. CliTests' tables gained the column; the AI-refus
 list not dropped (run exit 1), the "limit during an episode with failed chunks" branch off (`1/2 by rules`), the limit
 ignored in the catch (`failed`). Unit 621 passed / 4 skipped, Debug and Release; no UI file touched.
 Left open: VobSub subtitles in AI mode are untested (the pre-pass's WorkerVars points at the media dir, as Go's does).
+
+### Lead — 2026-10-04 — after phase 2.4
+Reviewed `AiPrePass` (the usage-limit paths) and its tests; Release unit 621 / 4 skipped on
+my own run; pushed e8f14b4. Kept the agent's choices: a cached episode after the limit
+still gets cards (it needs no request); *Remove duplicate lines* spans every ready episode
+before the drop (re-inactivating would change the cache keys). Phase 2.5 may edit the
+Makefile, `dist/` and `release.yml` (not `ci.yml`).
