@@ -379,3 +379,25 @@ Reviewed `Program.cs` and the test helper; 159 passed on my own run. Added the
 the smoke section under pwsh 7.6 with a wrapper in place of the exe and
 `LC_ALL=en_US.ISO-8859-1`: it passed with this branch's build and failed with the build
 from before eadb3e4.
+
+### Phase 1.4 — 2026-10-04 — 35ecf5f, 1e73193
+Built: README "Usage" now holds `Cli.Usage` exactly (diffed against `--help`; it had left
+out the first two and last two lines), plus "Reading the coverage line" (what it measures,
+why on the reference, how to pick a threshold; no default promised). "How auto-align
+works": 100 ms bins within ±10 min, the smoothing, up to 12 peaks. "Contract": exit 2
+below `--min-match`, the gate's stderr line, UTF-8 without BOM and platform line ends
+when redirected, the PowerShell `[Console]::OutputEncoding` line, and a "The report"
+subsection with a field table. CHANGELOG: two features, two fixes. Plan: Status,
+the Retime row of "What works today", S1-S4 and the subsretimer facts as built, Phases
+item 1 done, the script's `$MinMatch` comment, two Remaining points.
+Choices / deviations: the stderr and JSON examples come from the built exe on a
+generated pair (right pair 100%, a wrong pair 67%, exit 2, `reason` "below min-match";
+an empty target gave "no timed lines" with null measurements). The PowerShell line says
+"PowerShell, Windows PowerShell 5.1 included" rather than 5.1 only: 7 decodes captured
+output with `[Console]::OutputEncoding` too, as far as I know (not run on Windows). The
+CHANGELOG says a Japanese path "could" come out as `?`: no Windows run has shown it.
+Found: a stale report survives an exit 1 raised before `RemoveStaleReport` (bad option,
+bad `--min-match`, `--auto` with one file, `--output ""`); `Cli.Usage` says "a file already
+there is deleted first, so an error leaves none". The README says to read the report only
+after exit 0 or 2. Also `--auto --report R --help` exits 0 with no report.
+Left open: the `v*` tag (user); phase 2 work orders in subs2srs. 159 unit tests pass.

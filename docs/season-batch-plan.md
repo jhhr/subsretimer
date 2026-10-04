@@ -481,7 +481,7 @@ redoing.
    - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
      Done 2026-10-04 (66d5b18, eadb3e4; the lead's bc013aa, 566ca47).
-   - 1.4 S4, documentation.
+   - 1.4 S4, documentation. Done 2026-10-04 (35ecf5f, 1e73193).
 2. **subs2srs A.** The biggest phase. Its agent phases are cut, and their work
    orders written in subs2srs's `docs/`, once phase 1 is done. The draft cut:
    - 2.1 A1 + A2: the project, its lock file and CI restore, and the episode
