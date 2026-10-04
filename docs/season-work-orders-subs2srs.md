@@ -791,3 +791,29 @@ run; pushed bf4b5de. Added MKVToolNix to both CI jobs (apt; Chocolatey into Prog
 Files) so the real-mkvmerge tests run there (d7911ff). Kept the agent's choices: exit 1
 from mkvmerge is warnings; `--track` accepts any text track, Japanese or forced too;
 WebVTT is not a text track for us. The locale finding goes into 3.2's work order.
+
+### Phase 3.2 — 2026-10-04 — 2f77756
+Built: `subs2srs/MkvExtract.cs`: `Extension(codecId)` (`ass`/`ssa`/`srt`, else null), `OutputPath(season, video, track)`
+→ `<season>/s2s/<video name>.en.<ext>` (throws for a non-text track), `ExtractAsync(mkv, trackId, output, ct)` →
+`MkvExtractResult` (`Status` Extracted/Kept/Failed, full `OutputPath`, `Reason`), `RunnerOverride`, `NotFoundMessage`.
+Order: an existing non-empty output is Kept (before the tool lookup: a re-run needs no mkvextract); tool; the mkv exists
+(else "no such file: <path>"); the folder created; `mkvextract --output-charset UTF-8 <mkv> tracks <id>:<out>` through
+`MkvTracks.StartInfo`, full paths. Exit 0/1 with a non-empty output is Extracted; exit 2+ (`mkvextract exited with code 2:
+<its Error: line>`, else the last stderr/stdout line), no exit code, not starting, or no/empty output fail and delete the
+file; a cancel deletes it and throws. `MkvTracks.RunAsync` is now internal and shared, and waits up to 5 s for the killed
+tool to exit (Windows: the file is closed before the delete). `[RequiresMkvToolnixFact]` needs mkvextract too.
+Tests `MkvExtractTests` (29, 2 real): seen failing when broken: no delete on exit 2 or on cancel, no LC_ALL fix (real
+test: "Unknown mode"), the kept check off (bytes and mtime changed, the tool ran).
+Found (mkvextract 82, Linux): ASS and SRT tracks are written as UTF-8 **with a BOM** (an ASS muxed without one gets one),
+LF line endings. Messages go to **stdout** (`Error: ...`, `Warning: ...`, `Progress: n%` ended by `\r`); stderr is
+empty. A bad id: exit 2 `No track with the ID 9 was found in the source file.`, no file. A missing mkv, and a Japanese
+path under the C locale, both give exit 2 `Unknown mode '<path>'` (it falls back to the old argument order). It makes
+missing output folders itself and overwrites an existing output.
+Choices: an empty existing output is extracted again (no extraction leaves one). The call takes a track id, not the
+`MkvTrackInfo`. `MkvExtract.SubsFolder`/`EnTag` repeat `EpisodeList.SubsFolder`/`Subs2Tag` (the app cannot see the CLI);
+a test pins that `OutputPath`'s name is the Subs2 `EpisodeList.ForSeason` takes. MkvTracksTests' `Mux`/`Srt`/`Ass` are
+internal for reuse.
+The next phase must know: "kept" is the exact path only: an `.en.srt` from an earlier run next to a new `.en.ass` (another
+track picked) gives two `.en` files and `go` skips the episode ("2 .en files"); 3.4 should decide (keep any one `.en.*`?).
+Reasons from mkvextract hold full paths. Left open: Windows unchecked (line endings, `--output-charset`); the real cancel
+(kill, wait, delete) is tested only through the scripted runner. Unit 694 passed / 4 skipped (Debug, Release); no UI file.
