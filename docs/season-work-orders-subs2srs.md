@@ -884,3 +884,29 @@ Reviewed `MkvExtract`; Release unit 694 / 4 skipped on my own run; pushed 2f7775
 with MKVToolNix: Linux green; Windows failed one test in the helper `Mux`
 (`--command-line-charset` is not an option there), fixed in a53049d; both jobs green
 on it (runs 22 and 23).
+
+### Phase 3.3 — 2026-10-04 — 152bfb7
+Built: `SubsRetimerLauncher`: `StartInfo(exe, request)` through `makeToolStartInfo` (UTF-8 pipes, no window, `ArgumentList`);
+`RunAsync` runs `RunnerOverride ?? UtilsCommon.RunToolAsync` (the MKVToolNix loop moved out of `MkvTracks` and shared; both
+MKV classes call it): a cancel (also one before the start) kills the tool with its children, waits up to 5 s and throws
+`OperationCanceledException`; a runner without exit code is a failure. `Request` gains `MinMatch` (`double?`, invariant, passed
+whenever set, 0 too) and `ReportPath`. `EditorCommand(exe, request[, windows])`: `[--ref-encoding R` unless utf-8`]
+--target-encoding T [--output O] REF TARGET`, no `--`; POSIX single quotes (`'\''`); Windows PowerShell double quotes, a
+backtick before `` ` ``, `$`, `"` and the typographic double quotes, `& ` before a quoted exe; ASCII words of letters, digits,
+`-_./:=+` (and `\` on Windows) stay bare. `subs2srs/RetimeReport.cs`: `Read(path)` → `ExitCode`, `Saved`, `Segments` (count),
+`ReferenceCoverage` (share or null), `Reason` (`BelowMinMatch`, `NoTimedLines`); null when missing, not JSON, version ≠ 1 or
+a field of the wrong type. `DialogSubsRetimer`: closing it kills an auto-align; an open editor is left running (`WaitAsync`,
+only the waiting stops, as before: killing it would lose unsaved work).
+Tests `SubsRetimerLauncherTests` (53, 3 env-gated); fixtures `Fixtures/retime` written by subsretimer at 5d8475e (its temp
+folder replaced by `/home/user/Anime`); a real sleeping child killed (`sh`; `powershell` on Windows, never run); the POSIX
+command run through `/bin/sh` (new `[RequiresPosixShellFact]`). Seen failing when broken: the old start info (no UTF-8),
+`MinMatch` in the current culture (the real tool too: "not '0,8'"), no kill in the loop ("the child still runs").
+Found: this container sets `SUBSRETIMER_EXE=/opt/subsretimer/subsretimer`, a 2026-09-28 build without `--min-match` and
+`--report`, so the old real-tool tests always ran here. With it the new real test fails ("Unknown option: --min-match"): run
+the suite with `SUBSRETIMER_EXE` = a current build (as I did) or unset. The two old `RealTool_*` tests now use
+`[RequiresEnvFact]` (open item), so unset gives 7 skips instead of 4.
+Choices: a cancel throws (as `MkvExtract`), no Cancelled result. No `--` in the editor command (spec's Design 9 has none;
+PowerShell may drop it), so 3.3b must pass full paths. Windows quoting follows the work order (double quotes), not the
+End state's single quotes; it is checked as strings only (no PowerShell here). 3.3b picks the exe name to print.
+Docs stale for 3.5: architecture.md's launcher section, testing.md ("return" when unset), open-items deferred item 2.
+Unit 734 passed / 4 skipped (Debug, Release; `SUBSRETIMER_EXE` = fresh build); UI 23 passed.
