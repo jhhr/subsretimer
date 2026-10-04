@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.1)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.2)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -139,6 +139,11 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
 - Suites after 2.1: unit 575 passed, 4 skipped; UI 22 passed. One Release UI run failed
   `PreviewGroupingScrollTests` with "leaked MainWindow" and did not recur in 14 runs: if
   you see it, report it with the log, do not retry it away.
+
+- Phase 2.2: `Settings.EpisodeNumbers` (`int[]?`, `[JsonIgnore]`, nulled by `Reset`
+  and `RestoreFrom`) and `Settings.EpisodeNumber(index)` (0-based; throws outside a set
+  list) at all 36 former sites. Its length must equal the `Files` arrays'. Unit 583
+  passed / 4 skipped, UI 22.
 
 Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
@@ -191,7 +196,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1.
+Done: 2.1, 2.2.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -243,13 +248,24 @@ Done: 2.1.
   markers and every media file name of 1 and 3; a time-shift rule from episode 3 applies
   to the second file and not the first; null keeps today's numbering.
 
-### 2.2b — A run result (spec A5)
+### 2.2b — A run result, and stable name padding (spec A5)
 
 - `StartAsync` returns a result: `Completed`, `Cancelled` or `Failed`, a message, and the
   card count per episode. A worker failure must no longer read as a cancel. The GUI
   keeps its dialogs (`GoAsync` may show them from the result).
+- Episode-number padding (found in 2.2, decided by the lead): `${0:episode_num}` is
+  padded to the digits of the run's episode **count** (`UtilsName`,
+  `getMaxNecessaryLeadingZeroes(totalNumEpisodes)`, with `totalEpisodes` taken from the
+  `Files` arrays). A season run that skips episodes would then name the same episode
+  `3` in one run and `03` in the next, and re-runs would not reuse media or keep tags
+  (spec "Design" 7). Add `Settings.EpisodeCountForNames` (`int?`, `[JsonIgnore]`, reset
+  like `EpisodeNumbers`): when set, every `UtilsName` the pipeline builds pads by it
+  instead of the run's count. Phase 2.3 sets it, in season mode, to the season's video
+  count within Episode End # (skipped episodes included), which gives the names a GUI
+  run over every episode would give. Null keeps today's behaviour.
 - Tests: a failing worker gives `Failed` with its message, a cancel `Cancelled`, a run
-  the card counts per episode.
+  the card counts per episode; with `EpisodeCountForNames = 10` a two-episode run pads
+  episode 3 as `03` in tags and media names, and null keeps today's names.
 
 ### 2.3 — Checks, `go` runs the pipeline, the table (spec A3, A7)
 
@@ -346,3 +362,9 @@ first site past the list. `${0:episode_num}` is zero-padded to the digits of the
 a later run of 10 names it `03`, so tags and media names change between runs and existing media is not reused.
 Today's GUI does the same with a start number; whether `go` should pad by the largest number is for the lead.
 Left open: the time-shift test covers Subs1 only; the Subs2 site is the same one-line change, untested.
+
+### Lead — 2026-10-04 — after phase 2.2
+Reviewed `Settings.EpisodeNumber` and the worker sites; Release unit 583 / 4 skipped and UI
+22 on my own run. subs2srs CI (Linux and Windows) green on 60737f0; pushed 53117ed.
+Decided the padding finding: `Settings.EpisodeCountForNames`, set by `go` in season mode
+to the season's video count, so names do not change with skips; added to 2.2b.
