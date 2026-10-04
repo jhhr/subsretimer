@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.2b)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.3)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -154,6 +154,15 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   `RestoreFrom`, so set it **after** `ProjectIO.Load`) and
   `Settings.EpisodeCountForPadding(runEpisodes)` drive the `episode_num` padding of the
   five pipeline `UtilsName`s. Unit 594 passed / 4 skipped, UI 22.
+- Phase 2.3: `subs2srs/GoChecks.cs`: `Run(settings, audioStreamIndex, aiGroupingRuns)`
+  → `List<GoProblem>` (`IsError`, `Message`): output dir, deck, ffmpeg, animated encoder,
+  `claude` (terminal- model, when AI grouping runs), audio streams (warning).
+  `AudioStreamIndex(settings)` maps the project's stream to the GUI's index.
+  `ClaudeCliProvider.ResolveExecutable()`. `GoAsync` runs them after `SaveSettings` (all
+  errors in one dialog, each warning confirmed). `go --dry-run` prints them on stderr
+  under the table; errors exit 1. Season mode sets `VideoClips.Files` (ready episodes)
+  before the checks. CLI tests that dry-run put a fake `ffmpeg` in the Tools Directory.
+  Unit 607 / 4 skipped, UI 23.
 - Correction to the facts below: only a step that returns null/false used to become
   `OperationCanceledException`; ffmpeg errors throw their own exception.
 
@@ -208,7 +217,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b.
+Done: 2.1, 2.2, 2.2b, 2.3.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -463,3 +472,9 @@ test: the container runs as root; a file, and a path under one, cover it.
 The next phase must know: call `GoChecks.Run` after the season setup and `--grouping`, with `GoChecks.AudioStreamIndex`, and
 send a warning through `UtilsMsg.showConfirm` (answers `--yes`). `validateAudioStreamConsistency` numbers episodes by position
 (i + 1), not `EpisodeNumber`, and prints "Reference (episode -1)" when no video has the stream; left alone.
+
+### Lead — 2026-10-04 — after phase 2.3
+Reviewed `GoChecks` and the `GoAsync` diff; Release unit 607 / 4 skipped and UI 23 (twice)
+on my own runs; pushed 3372ae2. Kept the agent's choices: checks on stderr; the GUI now
+refuses Go when AI grouping would run on Go and `claude` is missing (it used to fall
+back to the rules without a word). Both go in the docs phase's CHANGELOG.
