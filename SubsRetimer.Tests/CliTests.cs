@@ -2,6 +2,7 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text;
 using SubsRetimer.Core;
 using SubsRetimer.Editor;
@@ -176,7 +177,7 @@ namespace SubsRetimer.Tests
 
       Assert.Equal(Cli.ExitError, r.Code);
       Assert.Equal("", r.Out);
-      Assert.Contains("cannot open a display", r.Err);
+      Assert.Contains(NoEditorMessage(), r.Err);
     }
 
     /// <summary>--check-editor never opens a window, so this real run cannot hang even where a display does open.</summary>
@@ -187,8 +188,21 @@ namespace SubsRetimer.Tests
 
       Assert.Equal(Cli.ExitError, r.Code);
       Assert.Equal("", r.Out);
-      Assert.Contains("cannot open a display", r.Err);
+      Assert.Contains(NoEditorMessage(), r.Err);
     }
+
+    /// <summary>
+    /// Why the editor cannot start on this machine once the display is taken
+    /// away. Where GTK 4 is installed it loads and finds no display; where it
+    /// is not (CI's unit-test job installs none) it does not get that far.
+    /// The executable loads GTK under this name, so this asks the same
+    /// question of the loader. The library is left loaded: nothing here
+    /// initialises it, and unloading a GLib library is what is unsafe.
+    /// </summary>
+    private static string NoEditorMessage() =>
+      NativeLibrary.TryLoad("libgtk-4.so.1", out _)
+        ? "cannot open a display"
+        : "GTK 4 could not be loaded";
 
     /// <summary>A child environment with no display: no X, no Wayland, and no backend (broadway, say) inherited from this one.</summary>
     private static void WithoutDisplay(ProcessStartInfo psi)
