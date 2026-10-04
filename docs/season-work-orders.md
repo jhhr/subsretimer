@@ -127,6 +127,8 @@ throwaway scripts in files in the scratchpad.
   known cuts, ±250 ms jitter, split lines and sound cues. A scratch harness at
   `$S/sim` (`Program.cs`, references Core) sweeps seeds and prints coverage; it is not
   part of the repository.
+- Phase 1.1b: `AutoAlign.CandidateOffsets` smooths the histogram (1-2-3-2-1 over ±2
+  bins) before picking peaks, and `MaxCandidates` is 12. 146 unit and 55 UI tests pass.
 - `SubsRetimer.Core`: `RetimerLine` (Start, End, Text, RawIndex, ...), `SubtitleFile` +
   `RetimerIO` (load, save with the original encoding/BOM/newline, `DefaultOutputPath`,
   `OutputFormatProblem`), `RetimerEngine` (`ReferenceLines`, `TargetLines`, `HasBoth`,
@@ -150,7 +152,7 @@ throwaway scripts in files in the scratchpad.
 
 ## 4. Phases
 
-Done: 1.1.
+Done: 1.1, 1.1b.
 
 ### 1.1 — Coverage and `--min-match` (spec S1)
 
@@ -297,3 +299,9 @@ The next phase must know: no CLI change. Lines from the two dialogue lines eithe
 of a cut can still take the neighbouring offset (the boundary item in ui-plan.md).
 Left open: the histogram counts every pair within ±10 min, so a short block stays a weak
 peak: with seeds 31-60 too, 2 of 60 pairs still lose the -4 s block at 400 ms jitter.
+
+### Lead — 2026-10-04 — after phase 1.1b
+Reviewed the `CandidateOffsets` diff; 146 unit and 55 UI tests passed on my own run
+(the editor's Auto Align uses the same code). Quality held over the first two phases:
+both showed their key tests failing and reported honestly. Both used about 200k tokens;
+1.2 and 1.3 are plumbing and should need far less.
