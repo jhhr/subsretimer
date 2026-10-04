@@ -548,3 +548,27 @@ Reviewed `SubsProcessor`/`WorkerSrs` (`ImportFile`) and the CLI's run; Release u
 not recur on 3372ae2 (all green); recorded in section 3. Wrote 2.4 out in full. For the
 docs phase: Design 8 should list a failed step under exit 1; the decimal comma in
 "Processing completed in 0,02 minutes" is the pipeline's old `String.Format`.
+
+### Phase 2.4 — 2026-10-04 — e8f14b4
+Built: `subs2srs.Cli/AiPrePass.cs`. `FirstSteps` = `combineAllSubs` + `inactivateLines` on a `WorkerVars` like StartAsync's
+(`SubsProcessor.getMediaDir` now `internal static`), the "no lines" check, a failure → `CliException` "<step> failed: ..."
+(exit 1, no table). `Run`: per episode a stderr line `AI grouping: episode N (k of m)`, `AiGrouper.Group` with
+`FromSettings()` and the `ConsoleProgress` (chunk progress under it); outcome `cached`/`grouped`/`k/n by rules`/`usage
+limit`/`failed` (`AiOutcome`). Limit: `UsageLimit` set → `Estimate().Cached` decides: not cached = skipped, no call; set
+after `Group` with failed chunks, or with a `ProviderException` → skipped. `Report`: a warning per partial episode, one
+line with the CLI's limit words. `DropSkipped`/`KeepEpisodes`: Subs1/Subs2/video/audio `Files` and `EpisodeNumbers`
+(made explicit in pattern mode; `EpisodeCountForNames ??=` the count); a list of another length is left alone. `GoAsync`:
+the refusal is gone; checks → pre-pass → all skipped: table, exit 3 → `StartAsync(progress, combinedAll, joins)`.
+Tables: `#, Episode, AI, Status, Cards` and dry run `#, Video, Subs1, Subs2, [Audio], AI, Status`; usage text.
+Choices / deviations: after the limit a **cached** episode still gets its cards (no request is made for it); design 6
+says "every remaining episode is skipped", the lead may want the letter. The duplicate-lines table spans every ready
+episode, also ones the AI step then drops: re-inactivating after the drop would change the lines the model grouped
+and the cache keys. A dry run whose subtitles do not parse shows `unknown`, says why, keeps its exit code. Cancel during
+the pre-pass: exit 130 without a table (nothing written).
+Tests: `CliAiPrePassTests` (8; 1 ffmpeg): all grouped (pipeline starts at "Group into snippets", On Go on), cached runs
+and dry runs; partial chunk failure kept + warning, asked again next run; all skipped; no lines → exit 1 / `unknown`;
+usage limit theory (one chunk answered / none) + second run; episode 2 dropped (its "video" a text file) with 3's text
+and media; `KeepEpisodes` unit. CliTests' tables gained the column; the AI-refused test removed. Seen failing: video
+list not dropped (run exit 1), the "limit during an episode with failed chunks" branch off (`1/2 by rules`), the limit
+ignored in the catch (`failed`). Unit 621 passed / 4 skipped, Debug and Release; no UI file touched.
+Left open: VobSub subtitles in AI mode are untested (the pre-pass's WorkerVars points at the media dir, as Go's does).
