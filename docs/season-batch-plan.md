@@ -318,7 +318,10 @@ redoing.
    has only seen synthetic data. The numbers from this step set the
    `--min-match` default.
    1. Check the tools in PowerShell: `mkvmerge --version`, `ffmpeg -version`,
-      `claude --version`, and subsretimer built as in S3.
+      `claude --version`, and subsretimer built as in S3. If MKVToolNix is
+      installed but `mkvmerge` is not found, add its folder
+      (`C:\Program Files\MKVToolNix` by default) to `PATH`. That also lets the
+      subs2srs MKV dialogs find it.
    2. Run `mkvmerge -i 'Show - 01.mkv'` and note the EN track id and whether it
       is ASS or SRT.
    3. Extract and retime:
@@ -339,7 +342,8 @@ redoing.
       shows the time per episode.
 1. **subsretimer S1 to S4.** Small; this repository.
 2. **subs2srs A.** The biggest phase, about four agent phases: A1+A2, A3+A4+A5,
-   A6+A7, then A8+A9. After it, the PowerShell script below runs a season.
+   A6+A7, then A8+A9. After it, the PowerShell script below also makes the
+   cards, with skipped episodes left out and the others keeping their numbers.
 3. **subs2srs B, C, D.** The script becomes one command, with automatic track
    choice and the season table.
 4. **Optional: E.**
@@ -347,34 +351,73 @@ redoing.
 Once the plan is agreed, work orders follow, as for the editor
 (`docs/ui-work-orders.md`).
 
-### Interim PowerShell script (after phases 1 and 2, before phase 3)
+### Interim PowerShell script (usable now; makes the cards once phase 2 lands)
 
-The EN track id and format are set once per season: releases keep one track
-layout for a season. Check one episode with `mkvmerge -i`.
+What it needs and does:
 
-Tested 2026-09-28 on PowerShell 7.6 under Linux, with a stub `subs2srs-cli`, on
-file names with `[Group]` brackets and spaces:
+- `mkvextract` and `subsretimer`, checked before any work. `mkvextract` is part
+  of MKVToolNix, not of subs2srs or subsretimer. The script looks for it on
+  `PATH`, then in `C:\Program Files\MKVToolNix`; the MKVToolNix installer does
+  not add that folder to `PATH`.
+- With `subs2srs-cli` on `PATH` (phase 2), it makes the cards. Until then it
+  prints the Subs1, Subs2 and Video patterns to enter in the subs2srs GUI.
+- If any episode was skipped, it does not print them and exits 3 instead. The
+  GUI pairs the files by position, so a gap would give every later episode the
+  wrong subtitles.
+- The EN track id and format are set once per season: releases keep one track
+  layout for a season. Check one episode with `mkvmerge -i`.
 
-- Episodes matched `<name>.srt` and `<name>.ja.srt`, and ignored an old
-  `<name> - Track 03 - English.srt` extract.
-- An episode without a JP file and one with two candidates were skipped.
+Tested 2026-10-04 on PowerShell 7.6 under Linux, on file names with `[Group]`
+brackets and spaces:
+
+- Episodes matched `<name>.srt`, `<name>.ja.srt` and `<name>.ja.ass`, and
+  ignored an old `<name> - Track 03 - English.srt` extract.
+- An episode without a JP file and one with two candidates were skipped, and
+  nothing was extracted for them.
 - A bad track id left no partial file.
 - A re-run skipped extraction and retimed again.
+- With `mkvextract` missing from `PATH` it failed up front, with the message,
+  and exit code 1.
+- With `mkvextract` only in `<ProgramFiles>\MKVToolNix` it was found.
+- Without `subs2srs-cli` it printed the GUI patterns, or exited 3 when episodes
+  were skipped.
+- With a stub `subs2srs-cli` it refused to run without `-Project`, and with
+  `-Project` it called `go --season`.
 
-Not tested on Windows PowerShell 5.1.
+Not tested on Windows itself, nor on Windows PowerShell 5.1.
 
 ```powershell
 # season.ps1: extract the EN track, retime the JP file, then make cards.
-# .\season.ps1 -Season 'D:\Anime\Show S1' -Project 'D:\Anki\show.s2s.json' -Track 3
+# .\season.ps1 -Season 'D:\Anime\Show S1' -Track 3 [-Project 'D:\Anki\show.s2s.json']
 param(
   [Parameter(Mandatory)] [string] $Season,
-  [Parameter(Mandatory)] [string] $Project,
   [Parameter(Mandatory)] [int] $Track,     # EN track id, from mkvmerge -i on one episode
+  [string] $Project,                       # needed once subs2srs-cli exists
   [string] $EnExt = 'ass',                 # the EN track's format: ass or srt
   [string] $JpEncoding = 'utf-8',          # e.g. shift_jis
   [double] $MinMatch = 0                   # 0 = off; needs subsretimer --min-match
 )
 $ErrorActionPreference = 'Stop'
+
+# PATH first, then the given folders: the MKVToolNix installer does not add itself to PATH.
+function Find-Tool([string] $Name, [string[]] $Dirs) {
+  $cmd = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($cmd) { return $cmd.Path }
+  foreach ($d in $Dirs) {
+    $p = Join-Path $d "$Name.exe"
+    if (Test-Path -LiteralPath $p) { return $p }
+  }
+  return $null
+}
+$mkvDirs = @()
+if ($env:ProgramFiles) { $mkvDirs += Join-Path $env:ProgramFiles 'MKVToolNix' }
+$mkvextract = Find-Tool 'mkvextract' $mkvDirs
+if (-not $mkvextract) { throw 'mkvextract not found: add the MKVToolNix folder (C:\Program Files\MKVToolNix by default) to PATH.' }
+$subsretimer = Find-Tool 'subsretimer' @()
+if (-not $subsretimer) { throw 'subsretimer not found: build it and add its folder to PATH (docs/season-batch-plan.md, S3).' }
+$s2scli = Find-Tool 'subs2srs-cli' @()
+if ($s2scli -and -not $Project) { throw '-Project is needed to make the cards with subs2srs-cli.' }
+
 $work = Join-Path $Season 's2s'
 [void][IO.Directory]::CreateDirectory($work)
 
@@ -387,32 +430,54 @@ if ($MinMatch -gt 0) { $gate = @('--min-match', $MinMatch.ToString([cultureinfo]
 
 $summary = foreach ($v in $videos) {
   $stem = $v.BaseName
+  # Never leave a retime from an earlier run behind.
+  foreach ($e in '.ass', '.ssa', '.srt') {
+    Remove-Item -LiteralPath (Join-Path $work "$stem.ja$e") -ErrorAction SilentlyContinue
+  }
+  # The JP file shares the video's name: "<stem>.srt" or "<stem>.<tag>.srt".
+  $jp = @($subs | Where-Object {
+    $_.BaseName -eq $stem -or $_.BaseName.StartsWith("$stem.", [StringComparison]::OrdinalIgnoreCase) })
   $status = 'ok'
+  if ($jp.Count -ne 1) { $status = "$($jp.Count) JP files match" }
   $en = Join-Path $work "$stem.en.$EnExt"
-  if (-not (Test-Path -LiteralPath $en)) {
-    & mkvextract $v.FullName tracks "${Track}:$en" | Out-Null
+  if ($status -eq 'ok' -and -not (Test-Path -LiteralPath $en)) {
+    & $mkvextract $v.FullName tracks "${Track}:$en" | Out-Null
     if ($LASTEXITCODE -ge 2) {
       $status = "mkvextract exit $LASTEXITCODE"
       Remove-Item -LiteralPath $en -ErrorAction SilentlyContinue
     }
   }
-  # The JP file shares the video's name: "<stem>.srt" or "<stem>.<tag>.srt".
-  $jp = @($subs | Where-Object {
-    $_.BaseName -eq $stem -or $_.BaseName.StartsWith("$stem.", [StringComparison]::OrdinalIgnoreCase) })
-  if ($status -eq 'ok' -and $jp.Count -ne 1) { $status = "$($jp.Count) JP files match" }
   if ($status -eq 'ok') {
     $out = Join-Path $work ("$stem.ja" + $jp[0].Extension)
-    Remove-Item -LiteralPath $out -ErrorAction SilentlyContinue   # never leave a stale retime
-    & subsretimer --auto @gate --target-encoding $JpEncoding --output $out '--' $en $jp[0].FullName
+    & $subsretimer --auto @gate --target-encoding $JpEncoding --output $out '--' $en $jp[0].FullName
     if ($LASTEXITCODE -ne 0) { $status = "subsretimer exit $LASTEXITCODE" }
   }
   [pscustomobject]@{ Episode = $stem; Status = $status }
 }
 $summary | Format-Table -AutoSize | Out-String -Width 300 | Write-Host
+$skipped = @($summary | Where-Object { $_.Status -ne 'ok' }).Count
 
-# Episodes without both files in s2s\ are skipped by go; the others keep their numbers.
-& subs2srs-cli go --project $Project --season $Season
-exit $LASTEXITCODE
+if ($s2scli) {
+  # Episodes without both files in s2s\ are skipped by go; the others keep their numbers.
+  & $s2scli go --project $Project --season $Season
+  exit $LASTEXITCODE
+}
+
+# Until subs2srs-cli exists (plan phase 2), the cards are made in the subs2srs GUI.
+if ($skipped -gt 0) {
+  Write-Warning ("$skipped episode(s) skipped. The subs2srs GUI pairs Subs1, Subs2 and Video by position, " +
+    'so fix them before making cards there, or every later episode gets the wrong subtitles.')
+  exit 3
+}
+$subs1 = Join-Path $work '*.ja.*'
+$subs2 = Join-Path $work "*.en.$EnExt"
+$video = Join-Path $Season '*.mkv'
+Write-Host 'Make the cards in the subs2srs GUI with:'
+Write-Host "  Subs1: $subs1   (encoding $JpEncoding)"
+Write-Host "  Subs2: $subs2"
+Write-Host "  Video: $video"
+Write-Host 'For AI grouping on Go: snippet mode AI and the "AI Grouping On Go" preference.'
+exit 0
 ```
 
 ## Facts checked (2026-09-28)
@@ -459,6 +524,11 @@ repository.
   event count. The default flag was set on every track. `mkvextract` writes SRT
   as UTF-8 with a BOM, which subsretimer and subs2srs both honour, and exits
   with 2 for a track id that does not exist.
+- On Windows, the MKVToolNix installer puts `mkvextract.exe` and `mkvmerge.exe`
+  in `C:\Program Files\MKVToolNix` without adding that folder to `PATH`. The
+  user hit this on 2026-10-04: `mkvextract` was not found with MKVToolNix
+  installed. subs2srs looks in the *Tools Directory* preference (one folder),
+  then `PATH`.
 - subsretimer `--auto` with an explicit `--output` overwrites (`Cli.RunAuto`).
   `CliTests.RealProcess_HonoursStdoutContract` runs `dotnet subsretimer.dll`
   and expects stdout to be exactly the path plus `"\n"`.
