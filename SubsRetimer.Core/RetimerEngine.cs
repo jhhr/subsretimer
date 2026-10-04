@@ -6,15 +6,15 @@
 
 namespace SubsRetimer.Core
 {
-  /// <summary>The result of <see cref="RetimerEngine.ReferenceCoverage"/>.</summary>
-  /// <param name="Covered">Reference lines the target covers.</param>
-  /// <param name="Counted">Reference lines with a duration: the ones that can be covered.</param>
+  /// <summary>The result of <see cref="RetimerEngine.ReferenceCoverage"/> and <see cref="RetimerEngine.TargetMatched"/>.</summary>
+  /// <param name="Covered">Reference lines the target covers; for <c>TargetMatched</c>, target lines that overlap a reference line.</param>
+  /// <param name="Counted">Reference lines with a duration: the ones that can be covered; for <c>TargetMatched</c>, every target line.</param>
   public readonly record struct Coverage(int Covered, int Counted)
   {
     /// <summary>
-    /// <see cref="Covered"/> over <see cref="Counted"/>, from 0 to 1; what
-    /// <c>--min-match</c> is compared with. 0 when nothing was counted:
-    /// coverage that cannot be measured does not pass a threshold.
+    /// <see cref="Covered"/> over <see cref="Counted"/>, from 0 to 1; for the
+    /// reference, what <c>--min-match</c> is compared with. 0 when nothing
+    /// was counted: coverage that cannot be measured does not pass a threshold.
     /// </summary>
     public double Share => Counted == 0 ? 0 : (double)Covered / Counted;
 
@@ -413,6 +413,24 @@ namespace SubsRetimer.Core
       var reference = ReferenceLines;
       bool[] flags = CoverageFlags(reference, TargetLines);
       return new Coverage(flags.Count(f => f), reference.Count(l => l.End > l.Start));
+    }
+
+    /// <summary>
+    /// The target lines that overlap some reference line at all, of every
+    /// target line: the rows the editor does not gray (<see cref="MismatchFlags"/>).
+    /// The looser rule, measured on the other side: it says how much of the
+    /// target found a place, where <see cref="ReferenceCoverage"/> says how
+    /// much of the reference was filled. Meant for after the alignment, like
+    /// that one.
+    /// </summary>
+    public Coverage TargetMatched()
+    {
+      var target = TargetLines;
+      // MismatchFlags grays nothing against an empty reference, which suits
+      // the editor; but then no line overlaps anything, so none is matched.
+      if (ReferenceLines.Count == 0) return new Coverage(0, target.Count);
+      bool[] mismatched = MismatchFlags(target, ReferenceLines);
+      return new Coverage(mismatched.Count(f => !f), target.Count);
     }
 
     /// <summary>

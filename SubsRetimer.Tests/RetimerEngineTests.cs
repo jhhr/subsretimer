@@ -348,6 +348,40 @@ namespace SubsRetimer.Tests
     }
 
     [Fact]
+    public void TargetMatched_CountsTargetLinesThatOverlapAnything_InAnyOrder()
+    {
+      // Ten lines 1000 s late with a sound cue between them and the five
+      // lines before them; shifting the ten back puts them first.
+      var reference = Fixtures.Lines(10, startMs: 10000);
+      var target = Fixtures.Lines(5, startMs: 500000).Concat(Fixtures.Lines(10, startMs: 1010000)).ToList();
+      target.Insert(5, L(900000, 901000));
+      var e = Engine(reference, target);
+      Assert.Equal(new Coverage(0, 16), e.TargetMatched());
+
+      e.ShiftFrom(6, Ms(-1000000));
+
+      Assert.False(RetimerEngine.IsSortedByStart(e.TargetLines));
+      Assert.Equal(new Coverage(10, 16), e.TargetMatched());
+      Assert.Equal(10.0 / 16, e.TargetMatched().Share);
+    }
+
+    [Fact]
+    public void TargetMatched_EmptySides()
+    {
+      // MismatchFlags grays nothing against an empty reference; matched is
+      // still none of the lines.
+      var noReference = new RetimerEngine();
+      noReference.LoadTarget(new SubtitleFile { Lines = Fixtures.Lines(3) });
+      Assert.Equal(new Coverage(0, 3), noReference.TargetMatched());
+      Assert.Equal(0, noReference.TargetMatched().Share);
+
+      var noTarget = new RetimerEngine();
+      noTarget.LoadReference(new SubtitleFile { Lines = Fixtures.Lines(3) });
+      Assert.Equal(new Coverage(0, 0), noTarget.TargetMatched());
+      Assert.Equal(0, noTarget.TargetMatched().Share);
+    }
+
+    [Fact]
     public void AverageMismatch_MatchedIgnoresUnmatchedLines()
     {
       var reference = Fixtures.Lines(4);
