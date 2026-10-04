@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.3)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.3b)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -225,7 +225,17 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   it. Run the suites with `SUBSRETIMER_EXE=$S/subsretimer-bin/subsretimer` (subsretimer
   at 5d8475e, built by phase 3.3; rebuild it there from `/home/user/subsretimer` with
   `dotnet build SubsRetimer/SubsRetimer.csproj -c Release -o $S/subsretimer-bin` if it is
-  missing). Unset, the real-tool tests skip (7 skips): CI runs that way.
+  missing). Unset, the real-tool tests skip (8 skips after 3.3b): CI runs that way.
+- After phase 3.3b (3ac375a, 75c7246): `subs2srs.Cli/RetimeStage.cs`:
+  `FindJpFiles(season, videos)` (give it every video: a name that is also a longer
+  video's JP file is that video's; tags may be dotted, English when any word is
+  `en`/`eng`), `FindEnFiles(season, videos)` (for `--only retime`), `FoundFile(Path,
+  Problem)` with `Of`/`Missing`, `RetimeOptions.FromSettings(settings, minMatch, force)`
+  (subsretimer resolved once; Subs1 encoding), `RetimeAsync(season, video, jp, en,
+  options, ct)` → `RetimeOutcome` (`Kind`, `OutputPath`, `Report`, `Reason`,
+  `EditorCommand`, `Ready`, `Column`). With no JP or no EN file it touches nothing (a
+  `.ja` file may stay: leave a not-Ready episode out of `go`); it deletes files in every
+  other path, so `--dry-run` must not call it. It prints nothing. Unit 782 / 4 skipped.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -1007,3 +1017,11 @@ After the lead's review, 75c7246: no JP or no EN file (none, or a second candida
 lookup problem; not `Ready`, so season gives go only Ready episodes. A tag is one or more non-empty dot-separated words (`ja.cc`),
 English when any word is `en`/`eng`. The column says `2 segments, 97% of EN covered` (`RetimeReport.Segments` doc fixed too).
 Unit 782 / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 778 / 8 unset (Release).
+
+### Lead — 2026-10-04 — after phase 3.3b
+Reviewed `RetimeStage`; asked for the three changes above (no delete on a lookup
+problem, "segments", dotted tags), reviewed 75c7246. Release unit 782 / 4 skipped
+(fresh `SUBSRETIMER_EXE`), 778 / 8 unset; pushed 3ac375a and 75c7246. CI on 95d3dfe
+green on both jobs, the Windows real-child cancel test included. Split 3.4 into 3.4
+(the command, extract and retime) and 3.4b (`go` inside `season`), with the open points
+decided in their work orders.
