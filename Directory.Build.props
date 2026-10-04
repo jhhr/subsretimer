@@ -1,0 +1,12 @@
+<Project>
+  <!-- One place for what every project here shares. The version above all: it
+       reaches the executable's version option and the editor's About box
+       through the assembly attributes, and two copies of it drift apart.
+       A release build overrides it (release.yml publishes with -p:Version=). -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+    <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
+    <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+  </PropertyGroup>
+</Project>

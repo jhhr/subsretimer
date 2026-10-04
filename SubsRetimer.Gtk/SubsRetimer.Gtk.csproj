@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Namespace, not SubsRetimer.Gtk: a namespace named Gtk under SubsRetimer
+         would shadow the global Gtk namespace in every file of this project. -->
+    <RootNamespace>SubsRetimer.Editor</RootNamespace>
+    <AssemblyName>SubsRetimer.Gtk</AssemblyName>
+    <Description>Subs Re-Timer editor window (GTK 4)</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="GirCore.Gtk-4.0" Version="0.7.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../SubsRetimer.Core/SubsRetimer.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="SubsRetimer.Tests" />
+    <InternalsVisibleTo Include="SubsRetimer.UiTests" />
+  </ItemGroup>
+</Project>

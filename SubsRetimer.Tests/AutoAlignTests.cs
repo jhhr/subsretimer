@@ -90,6 +90,43 @@ namespace SubsRetimer.Tests
     }
 
     [Fact]
+    public void Apply_TwoMovingSegments_OneUndoStepEachRestoringTheStageBefore()
+    {
+      // Both segments move, so both push an undo snapshot: 10 s of lead-in in
+      // the target's video everywhere, 15 s more from line 60 on.
+      var reference = Fixtures.Dialogue(140);
+      var target = Derive(reference, new[] { (0, 10000.0), (60, 15000.0) });
+      var original = target.Select(l => l.Start).ToArray();
+
+      var segs = AutoAlign.Compute(reference, target);
+      Assert.Equal(2, segs.Count);
+      Assert.Equal(60, segs[1].StartIndex);
+      Assert.Equal(-10000, segs[0].Offset.TotalMilliseconds, tolerance: 60.0);
+      Assert.Equal(-25000, segs[1].Offset.TotalMilliseconds, tolerance: 60.0);
+
+      var e = Engine(reference, target);
+      AutoAlign.Apply(e, segs);
+
+      // After the apply every line carries its own segment's offset...
+      Starts(e, i => original[i] + segs[i < segs[1].StartIndex ? 0 : 1].Offset);
+
+      // ...the first Undo takes back the second segment's shift only...
+      Assert.True(e.Undo());
+      Starts(e, i => original[i] + segs[0].Offset);
+
+      // ...and the second takes the file back to how it was loaded.
+      Assert.True(e.Undo());
+      Starts(e, i => original[i]);
+      Assert.False(e.CanUndo);
+
+      void Starts(RetimerEngine engine, Func<int, TimeSpan> expected)
+      {
+        for (int i = 0; i < original.Length; i++)
+          Assert.Equal(expected(i).TotalMilliseconds, engine.TargetLines[i].Start.TotalMilliseconds, tolerance: 0.5);
+      }
+    }
+
+    [Fact]
     public void NegativeCut_TargetMissingOpening()
     {
       // The target's video lacks a 90 s opening that the reference's video has.

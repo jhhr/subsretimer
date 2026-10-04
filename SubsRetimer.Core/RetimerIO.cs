@@ -40,6 +40,22 @@ namespace SubsRetimer.Core
       };
     }
 
+    /// <summary>
+    /// Why <paramref name="outputPath"/> cannot hold subtitles of
+    /// <paramref name="format"/>, or null when it can. Saving writes the
+    /// target's own format whatever the name says, so an extension that names
+    /// the other supported format would give a file neither this tool nor a
+    /// player reads as what it claims to be. Any other name is the caller's
+    /// business.
+    /// </summary>
+    public static string? OutputFormatProblem(SubtitleFormat format, string outputPath)
+    {
+      if (!IsSupported(outputPath) || FormatFor(outputPath) == format) return null;
+      string kind = format == SubtitleFormat.Ass ? "ASS" : "SRT";
+      string allowed = format == SubtitleFormat.Ass ? ".ass or .ssa" : ".srt";
+      return $"{kind} subtitles are saved as {allowed}, not {Path.GetExtension(outputPath)}: {outputPath}";
+    }
+
     /// <summary>Default output path: <c>name_retimed.ext</c> next to the input.</summary>
     public static string DefaultOutputPath(string inputPath)
     {
@@ -77,7 +93,7 @@ namespace SubsRetimer.Core
         enc = new UnicodeEncoding(true, true); hasBom = true; skip = 2;
       }
 
-      string text = enc.GetString(bytes, skip, bytes.Length - skip);
+      string text = Decode(enc, bytes, skip, out bool invalidBytes);
       string newLine = text.Contains("\r\n") ? "\r\n" : "\n";
       var rawLines = text.Split('\n').ToList();
       if (newLine == "\r\n")
@@ -107,8 +123,32 @@ namespace SubsRetimer.Core
         NewLine = newLine,
         RawLines = rawLines,
         Lines = sorted,
-        EventFields = fields
+        EventFields = fields,
+        HasInvalidBytes = invalidBytes
       };
+    }
+
+    /// <summary>
+    /// The text of <paramref name="bytes"/> after <paramref name="skip"/>.
+    /// Bytes that are not valid in <paramref name="encoding"/> are read as
+    /// U+FFFD as before, but <paramref name="invalidBytes"/> says so: saving
+    /// that text would write those characters back changed.
+    /// </summary>
+    private static string Decode(Encoding encoding, byte[] bytes, int skip, out bool invalidBytes)
+    {
+      var strict = (Encoding)encoding.Clone();
+      strict.DecoderFallback = DecoderFallback.ExceptionFallback;
+      try
+      {
+        invalidBytes = false;
+        return strict.GetString(bytes, skip, bytes.Length - skip);
+      }
+      catch (DecoderFallbackException)
+      {
+        invalidBytes = true;
+        // The encoding's own fallback, as before: U+FFFD for UTF-8.
+        return encoding.GetString(bytes, skip, bytes.Length - skip);
+      }
     }
 
     private static IReadOnlyList<string> ParseAss(List<string> rawLines, List<RetimerLine> lines)
@@ -255,8 +295,12 @@ namespace SubsRetimer.Core
     }
 
     /// <summary>Write the file to <paramref name="outputPath"/> with the same encoding, BOM and line endings.</summary>
+    /// <exception cref="NotSupportedException">The extension names the other subtitle format; see <see cref="OutputFormatProblem"/>.</exception>
     public static void Save(SubtitleFile file, string outputPath)
     {
+      string? problem = OutputFormatProblem(file.Format, outputPath);
+      if (problem != null) throw new NotSupportedException(problem);
+
       string text = Render(file);
       Encoding enc = file.Encoding;
       if (enc is UTF8Encoding) enc = new UTF8Encoding(file.HasBom);

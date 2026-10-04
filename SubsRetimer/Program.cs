@@ -5,6 +5,12 @@ namespace SubsRetimer
 {
   public static class Program
   {
-    public static int Main(string[] args) => Cli.Run(args, Console.Out, Console.Error);
+    public static int Main(string[] args)
+    {
+      // Before anything can touch GTK: on Windows the bundled GTK runtime is
+      // only found through these variables. A no-op on every other platform.
+      WindowsRuntimeSetup.Apply();
+      return Cli.Run(args, Console.Out, Console.Error);
+    }
   }
 }

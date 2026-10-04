@@ -48,6 +48,9 @@ namespace SubsRetimer.Core
     {
       options ??= new AutoAlignOptions();
       if (reference.Count == 0 || target.Count == 0) return Array.Empty<AlignmentSegment>();
+      // Every search below is a binary search over the reference; a loaded
+      // reference is sorted already and this costs one pass.
+      reference = RetimerEngine.SortedByStart(reference);
 
       var candidates = CandidateOffsets(reference, target, options);
       if (candidates.Count == 0) candidates.Add(0);
@@ -156,7 +159,7 @@ namespace SubsRetimer.Core
         var s = target[j].Start + d;
         var e = target[j].End + d;
         if (RetimerEngine.BestOverlap(s, e, reference) <= 0) continue;
-        int c = RetimerEngine.ClosestIndex(s, reference);
+        int c = RetimerEngine.ClosestIndexSorted(s, reference);
         diffs.Add((reference[c].Start - s).TotalMilliseconds);
       }
 
