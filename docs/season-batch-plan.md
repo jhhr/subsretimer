@@ -1,11 +1,12 @@
 # Season batch: extract, retime and make cards without the GUI
 
 Status: revised 2026-09-28 with the user's answers (recorded under "Decisions
-from your answers"). Remaining points are at the end.
+from your answers"). Remaining points are at the end. Being built since
+2026-10-04 by phase agents, from the work orders in `docs/season-work-orders.md`;
+phase 1 first (the user's phase 0 runs alongside).
 
-Builds on the editor branch (`ui-editor`, PR #1), which was merged into this
-branch on 2026-10-04 and is about to be merged into `main`. Revised then for
-what that branch already provides:
+Builds on the editor branch (`ui-editor`, PR #1), merged into `main` on
+2026-10-04. Revised then for what that branch already provides:
 
 - the Windows zip (S3);
 - the editor, as the way to fix an episode the batch could not retime (design
@@ -143,31 +144,49 @@ align by hand, then run again:
 ## Changes in subsretimer (this repository)
 
 - **S1. `--min-match FRACTION`**, for `--auto` only.
-  - After alignment it computes the share of *reference* lines that overlap a
-    retimed target line: `MismatchFlags(ReferenceLines, TargetLines)`, counting
-    the false entries.
+  - After alignment it computes the **reference coverage**: the share of
+    *reference* lines of which the retimed target lines, together, cover at
+    least half the duration. A reference line with no duration is left out of
+    the count.
+  - "Together" means the union of the target lines: an EN line that the JP file
+    splits in two is still covered.
+  - "At least half" rather than "any overlap" (`MismatchFlags`): with any
+    overlap, a wrong pair (another episode's JP file) still scores about 85%,
+    because dialogue fills about half the timeline and auto-align picks the
+    offsets that overlap most. With half the duration, the wrong pair drops to
+    about 50% (75% against a dense CC file), and the right pair stays near
+    100%. Simulated 2026-10-04 on `Fixtures.Dialogue`-like timings (see
+    "Facts checked").
   - The reference is the clean EN track. Measured that way, sound cues and
     speaker-only lines in a CC JP file cannot pull the number down, which they
     would if it counted target lines.
+  - stderr always prints the coverage after the segments, so phase 0 can read
+    it without a threshold.
   - Below the threshold nothing is saved, stderr says why, and the exit code is
     `2` ("nothing saved"). That code already exists in the contract, and the
-    subs2srs launcher maps it to `NothingSaved`.
-  - Off by default, so nothing changes for current callers. The threshold comes
-    from phase 0.
+    subs2srs launcher maps it to `NothingSaved`. An existing `--output` file is
+    left as it is.
+  - Off by default (`0`), so nothing changes for current callers. The threshold
+    comes from phase 0.
   - It catches an episode that aligned badly as a whole, not a few misplaced
     lines. Auto-align folds a leading block shorter than its switch penalty
     (about three lines) into the next segment, so a short intro before a cut
     can end up early while coverage barely moves. This is a known Core
     limitation, listed in `docs/ui-plan.md` under "Known limitations".
-- **S2. `--report PATH`**: a JSON file, written even when nothing is saved, with:
+- **S2. `--report PATH`**, for `--auto` only: a JSON file, written for exit 0
+  and exit 2, with:
   - the input paths and line counts;
-  - the segments (from, to, offset in ms, matched);
-  - the share of reference lines covered and the share of target lines matched;
+  - the segments (first and last line, 1-based as on stderr, offset in ms,
+    matched lines);
+  - the reference coverage (S1) and the share of target lines matched (those
+    that overlap a reference line at all, the editor's non-gray rows);
   - the average mismatch before and after;
-  - the saved path, or the reason nothing was saved.
+  - the `--min-match` threshold, the exit code, and the saved path or the
+    reason nothing was saved.
 
-  subs2srs reads it for the season table instead of parsing stderr, which the
-  contract keeps for humans.
+  A report at that path from an earlier run is deleted first, so exit 1 never
+  leaves one behind. subs2srs reads it for the season table instead of parsing
+  stderr, which the contract keeps for humans.
 - **S3. Windows: what the editor branch left for a batch.** The zip itself is
   done there:
   - `.github/workflows/release.yml` publishes `win-x64` self-contained on `v*`
@@ -191,11 +210,16 @@ align by hand, then run again:
     - .NET picks stdout's encoding on Windows from whether the child has a
       console: the console's code page if it has one, UTF-8 if it has none.
     - Write UTF-8 whenever stdout is redirected, so the path does not depend on
-      how the tool was started. C2 makes the reading side UTF-8.
+      how the tool was started. The same for stderr, which carries file names
+      in its messages and which subs2srs shows. C2 makes the reading side
+      UTF-8.
+    - The subs2srs launcher starts subsretimer with `CreateNoWindow = true`,
+      which gives the child a console without a window, so today it writes in
+      the console's code page there.
     - Do not set `Console.OutputEncoding` for this: that changes the code page
       of the console the tool shares with its parent.
-    - Pin it with a unit test that saves to a path with Japanese characters.
-      Also add such a pair to `smoke.ps1`. Its `--auto` check uses ASCII names
+    - Pin it with a unit test that saves to a path with Japanese characters,
+      started as the launcher starts it. Also add such a pair to `smoke.ps1`. Its `--auto` check uses ASCII names
       only, and runs the exe in the same console (`Start-Process -NoNewWindow`).
       Read the redirected stdout with `Get-Content -Encoding UTF8`: Windows
       PowerShell 5.1 reads ANSI by default.
@@ -398,16 +422,29 @@ redoing.
    6. In the GUI, set Subs1 = retimed JP, Subs2 = EN, and run the Preview with AI
       grouping through `claude`. This checks the CLI provider on Windows and
       shows the time per episode.
-1. **subsretimer S1 to S4.** Small; this repository.
-2. **subs2srs A.** The biggest phase, about four agent phases: A1+A2, A3+A4+A5,
-   A6+A7, then A8+A9. After it, the PowerShell script below also makes the
-   cards, with skipped episodes left out and the others keeping their numbers.
-3. **subs2srs B, C, D.** The script becomes one command, with automatic track
-   choice and the season table.
-4. **Optional: E.**
+1. **subsretimer S1 to S4.** This repository, four agent phases (work orders in
+   `docs/season-work-orders.md`):
+   - 1.1 S1, the coverage number and `--min-match`.
+   - 1.2 S2, `--report`.
+   - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
+     Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
+   - 1.4 S4, documentation.
+2. **subs2srs A.** The biggest phase. Its agent phases are cut, and their work
+   orders written in subs2srs's `docs/`, once phase 1 is done. The draft cut:
+   - 2.1 A1 + A2: the project, its lock file and CI restore, and the episode
+     list (`go --dry-run`).
+   - 2.2 A4 + A5: episode numbers and the run result.
+   - 2.3 A3 + A7: the checks, `go` running the pipeline, and the table.
+   - 2.4 A6: the AI pre-pass.
+   - 2.5 A8: packaging. 2.6: documentation.
 
-Once the plan is agreed, work orders follow, as for the editor
-(`docs/ui-work-orders.md`).
+   A9's tests are written by the phase that builds each behaviour. After phase
+   2, the PowerShell script below also makes the cards, with skipped episodes
+   left out and the others keeping their numbers.
+3. **subs2srs B, C, D.** The script becomes one command, with automatic track
+   choice and the season table. Draft cut: 3.1 B (track list and pick as pure
+   logic first, then extraction), 3.2 C, 3.3 D, 3.4 documentation.
+4. **Optional: E.**
 
 ### Interim PowerShell script (usable now; makes the cards once phase 2 lands)
 
@@ -655,7 +692,26 @@ repository.
   -NoNewWindow`), reading stdout with `Get-Content`. `ci.yml` has no Windows
   job.
 - `SubsRetimerLauncher.ParseResult` splits stdout on `'\n'` and trims each line,
-  so a CRLF from a Windows subsretimer is harmless.
+  so a CRLF from a Windows subsretimer is harmless. The launcher starts it with
+  `UseShellExecute = false` and `CreateNoWindow = true`
+  (`SubsRetimerLauncher.cs:90-95`).
+- Coverage by "any overlap" does not tell a wrong pair from a right one
+  (2026-10-04, a simulation in the lead's scratchpad with `Fixtures.Dialogue`'s
+  timing distribution, 300 lines). Right pair: the reference jittered by up to
+  ±250 ms, 15% of lines split in two, 15% extra cue lines. Wrong pair: another
+  seed, at its best global offset.
+
+  | Rule for "covered" | Right pair | Wrong pair | Wrong pair, dense CC |
+  | --- | --- | --- | --- |
+  | any overlap (`MismatchFlags`) | 100% | 85% | 95% |
+  | the union of target lines covers half the line | 100% | 50% | 75% |
+
+  Auto-align picks a different offset per segment, which only raises the wrong
+  pair's number, so the gap is smaller still on real data. S1 uses the
+  second rule.
+- `AutoAlign.Apply` shifts with `ShiftFrom`, so after a negative cut the target
+  list can be out of start order; `MismatchFlags` and `BestOverlap` callers sort
+  a copy (`RetimerEngine.SortedByStart`). The coverage code must do the same.
 
 ## Remaining points
 
