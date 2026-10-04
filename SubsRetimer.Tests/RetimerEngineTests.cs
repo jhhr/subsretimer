@@ -244,6 +244,143 @@ namespace SubsRetimer.Tests
       Assert.All(RetimerEngine.MismatchFlags(target, new List<RetimerLine>()), f => Assert.False(f));
     }
 
+    private static RetimerLine L(double startMs, double endMs) => new() { Start = Ms(startMs), End = Ms(endMs) };
+
+    [Fact]
+    public void CoverageFlags_HalfTheDuration_ByTheUnionOfTheOtherLines()
+    {
+      var reference = new List<RetimerLine>
+      {
+        L(0, 1000),      // [500, 1500] covers exactly half: covered
+        L(2000, 3000),   // [2501, 3500] covers 499 ms: not
+        L(4000, 6000),   // two halves of 30% each, 60% together: covered
+        L(7000, 8000),   // two lines overlapping each other: 45% once, 65% if counted twice
+      };
+      var target = new List<RetimerLine>
+      {
+        L(500, 1500), L(2501, 3500), L(4100, 4700), L(5200, 5800), L(7000, 7300), L(7100, 7450),
+      };
+      Assert.Equal(new[] { true, false, true, false }, RetimerEngine.CoverageFlags(reference, target));
+    }
+
+    [Fact]
+    public void CoverageFlags_CountsEveryLineItMeets_NotAWindowOfNeighbours()
+    {
+      // A 60 s line under forty 1 s lines, one every 1.5 s: 40 s of it is
+      // covered. BestOverlap's window, twelve lines either side of the
+      // closest start, would see thirteen of them: 13 s, under half.
+      var longLine = new List<RetimerLine> { L(0, 60000) };
+      var shortLines = Fixtures.Lines(40, startMs: 0, stepMs: 1500, durMs: 1000);
+      Assert.Equal(new[] { true }, RetimerEngine.CoverageFlags(longLine, shortLines));
+
+      // The other way round, one long line covers every short one.
+      Assert.All(RetimerEngine.CoverageFlags(shortLines, longLine), f => Assert.True(f));
+    }
+
+    [Fact]
+    public void CoverageFlags_EitherListOutOfOrder_AndNeitherIsChanged()
+    {
+      // Three thirds of [0, 3000] in shuffled order: merged in the order
+      // given, the first would swallow the other two.
+      var reference = new List<RetimerLine> { L(6000, 9000), L(0, 3000) };
+      var target = new List<RetimerLine> { L(2000, 3000), L(0, 1000), L(1000, 2000), L(8000, 9000) };
+
+      Assert.Equal(new[] { false, true }, RetimerEngine.CoverageFlags(reference, target));
+      Assert.Equal(new[] { 2000.0, 0, 1000, 8000 }, target.Select(l => l.Start.TotalMilliseconds));
+      Assert.Equal(new[] { 6000.0, 0 }, reference.Select(l => l.Start.TotalMilliseconds));
+    }
+
+    [Fact]
+    public void ReferenceCoverage_AfterAShiftLeavesTheTargetOutOfOrder()
+    {
+      // Five target lines with no counterpart, then the reference's ten
+      // lines 1000 s late. Shifting those back puts them before the five.
+      var reference = Fixtures.Lines(10, startMs: 10000);
+      var target = Fixtures.Lines(5, startMs: 500000).Concat(Fixtures.Lines(10, startMs: 1010000)).ToList();
+      var e = Engine(reference, target);
+      Assert.Equal(new Coverage(0, 10), e.ReferenceCoverage());
+
+      e.ShiftFrom(5, Ms(-1000000));
+
+      Assert.False(RetimerEngine.IsSortedByStart(e.TargetLines));
+      Assert.Equal(new Coverage(10, 10), e.ReferenceCoverage());
+      Assert.Equal(1.0, e.ReferenceCoverage().Share);
+    }
+
+    [Fact]
+    public void ReferenceCoverage_LeavesOutReferenceLinesWithNoDuration()
+    {
+      var reference = new List<RetimerLine> { L(0, 1000), L(1500, 1500), L(2000, 3000), L(4000, 3500) };
+      var target = new List<RetimerLine> { L(0, 5000) };
+
+      Assert.Equal(new[] { true, false, true, false }, RetimerEngine.CoverageFlags(reference, target));
+      var coverage = Engine(reference, target).ReferenceCoverage();
+      Assert.Equal(new Coverage(2, 2), coverage);
+      Assert.Equal(1.0, coverage.Share);
+    }
+
+    [Fact]
+    public void Coverage_EmptySides()
+    {
+      var lines = Fixtures.Lines(3);
+      Assert.Empty(RetimerEngine.CoverageFlags(new List<RetimerLine>(), lines));
+      Assert.Equal(new[] { false, false, false }, RetimerEngine.CoverageFlags(lines, new List<RetimerLine>()));
+
+      var noTarget = new RetimerEngine();
+      noTarget.LoadReference(new SubtitleFile { Lines = lines });
+      Assert.Equal(new Coverage(0, 3), noTarget.ReferenceCoverage());
+      Assert.Equal(0, noTarget.ReferenceCoverage().Share);
+
+      // Nothing to count passes no threshold.
+      var nothing = new RetimerEngine().ReferenceCoverage();
+      Assert.Equal(new Coverage(0, 0), nothing);
+      Assert.Equal(0, nothing.Share);
+      Assert.Equal(0, nothing.Percent);
+    }
+
+    [Fact]
+    public void Coverage_PercentRoundsDown_WithoutFloatingPointError()
+    {
+      Assert.Equal(29, new Coverage(29, 100).Percent);   // 0.29 * 100 is 28.999...
+      Assert.Equal(99, new Coverage(299, 300).Percent);  // 100 only when every line is covered
+      Assert.Equal(66, new Coverage(2, 3).Percent);
+      Assert.Equal(100, new Coverage(3, 3).Percent);
+    }
+
+    [Fact]
+    public void TargetMatched_CountsTargetLinesThatOverlapAnything_InAnyOrder()
+    {
+      // Ten lines 1000 s late with a sound cue between them and the five
+      // lines before them; shifting the ten back puts them first.
+      var reference = Fixtures.Lines(10, startMs: 10000);
+      var target = Fixtures.Lines(5, startMs: 500000).Concat(Fixtures.Lines(10, startMs: 1010000)).ToList();
+      target.Insert(5, L(900000, 901000));
+      var e = Engine(reference, target);
+      Assert.Equal(new Coverage(0, 16), e.TargetMatched());
+
+      e.ShiftFrom(6, Ms(-1000000));
+
+      Assert.False(RetimerEngine.IsSortedByStart(e.TargetLines));
+      Assert.Equal(new Coverage(10, 16), e.TargetMatched());
+      Assert.Equal(10.0 / 16, e.TargetMatched().Share);
+    }
+
+    [Fact]
+    public void TargetMatched_EmptySides()
+    {
+      // MismatchFlags grays nothing against an empty reference; matched is
+      // still none of the lines.
+      var noReference = new RetimerEngine();
+      noReference.LoadTarget(new SubtitleFile { Lines = Fixtures.Lines(3) });
+      Assert.Equal(new Coverage(0, 3), noReference.TargetMatched());
+      Assert.Equal(0, noReference.TargetMatched().Share);
+
+      var noTarget = new RetimerEngine();
+      noTarget.LoadReference(new SubtitleFile { Lines = Fixtures.Lines(3) });
+      Assert.Equal(new Coverage(0, 0), noTarget.TargetMatched());
+      Assert.Equal(0, noTarget.TargetMatched().Share);
+    }
+
     [Fact]
     public void AverageMismatch_MatchedIgnoresUnmatchedLines()
     {

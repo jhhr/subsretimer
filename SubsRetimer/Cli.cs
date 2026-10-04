@@ -1,6 +1,7 @@
 //  Copyright (C) 2026 jhhr and contributors
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
+using System.Globalization;
 using System.Text;
 using SubsRetimer.Core;
 using SubsRetimer.Editor;
@@ -27,6 +28,10 @@ namespace SubsRetimer
       public string? Target;
       public bool Auto;
       public string? Output;
+      /// <summary>The <c>--min-match</c> threshold, 0 to 1; null when not given (off, as 0 is).</summary>
+      public double? MinMatch;
+      /// <summary>The <c>--report</c> path, as given; null when not given.</summary>
+      public string? Report;
       public string RefEncoding = "utf-8";
       public string TargetEncoding = "utf-8";
       public bool PrintOutput;
@@ -47,6 +52,12 @@ Re-time TARGET so that its lines match the timings of REFERENCE.
 Options:
   --auto                  run auto-align and save without opening the editor
   -o, --output PATH       output path (default: <TARGET>_retimed.<ext>)
+  --min-match FRACTION    with --auto: save only if TARGET covers at least
+                          this share of REFERENCE's lines (0 to 1; default
+                          0, off), else save nothing and exit 2
+  --report PATH           with --auto: write a JSON report of the run to
+                          PATH when it exits 0 or 2; a report already
+                          there is deleted before the files are read
   --ref-encoding NAME     encoding of REFERENCE (default: utf-8)
   --target-encoding NAME  encoding of TARGET (default: utf-8)
   --print-output          print the path of each saved file to stdout
@@ -80,6 +91,8 @@ Supported formats: .ass, .ssa, .srt";
         {
           case "--auto": o.Auto = true; break;
           case "-o": case "--output": o.Output = Next(); break;
+          case "--min-match": o.MinMatch = ParseFraction(a, Next()!); break;
+          case "--report": o.Report = Next(); break;
           case "--ref-encoding": o.RefEncoding = Next()!; break;
           case "--target-encoding": o.TargetEncoding = Next()!; break;
           case "--print-output": o.PrintOutput = true; break;
@@ -94,9 +107,26 @@ Supported formats: .ass, .ssa, .srt";
         }
       }
       if (positional.Count > 2) throw new ArgumentException("At most two files can be given (REFERENCE and TARGET).");
+      // The editor saves what its user chooses to save; there is no
+      // alignment of its own to judge, or to report.
+      if (o.MinMatch != null && !o.Auto) throw new ArgumentException("--min-match requires --auto.");
+      if (o.Report != null && !o.Auto) throw new ArgumentException("--report requires --auto.");
       if (positional.Count > 0) o.Reference = positional[0];
       if (positional.Count > 1) o.Target = positional[1];
       return o;
+    }
+
+    /// <summary>
+    /// A number from 0 to 1, read the same way in every culture: a caller
+    /// writes <c>0.85</c> whatever its locale, and <c>0,85</c> is refused
+    /// rather than read as 0.85 on one machine and 85 on another. NaN fails
+    /// the range check.
+    /// </summary>
+    private static double ParseFraction(string option, string value)
+    {
+      if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v >= 0 && v <= 1)
+        return v;
+      throw new ArgumentException($"{option} takes a number from 0 to 1, like 0.85; not '{value}'.");
     }
 
     public static int Run(string[] args, TextWriter stdout, TextWriter stderr)
@@ -165,6 +195,9 @@ Supported formats: .ass, .ssa, .srt";
       if (o.Reference == null || o.Target == null)
         throw new ArgumentException("--auto requires both REFERENCE and TARGET.");
 
+      string output = Path.GetFullPath(o.Output ?? RetimerIO.DefaultOutputPath(o.Target));
+      string? report = o.Report == null ? null : RemoveStaleReport(o, output);
+
       var engine = new RetimerEngine();
       engine.LoadReference(LoadChecked(o.Reference, o.RefEncoding, "Reference"));
       engine.LoadTarget(LoadChecked(o.Target, o.TargetEncoding, "Target"));
@@ -173,10 +206,14 @@ Supported formats: .ass, .ssa, .srt";
       if (!engine.HasBoth)
       {
         stderr.WriteLine("subsretimer: nothing to do, one of the files has no timed lines.");
+        // Nothing was aligned: no segments, and no measurements.
+        if (report != null)
+          new AutoReport(AutoReport.CurrentVersion, ReportFile.Of(engine.Reference!), ReportFile.Of(engine.Target!),
+            output, Array.Empty<ReportSegment>(), null, null, null, o.MinMatch,
+            ExitNothingSaved, null, AutoReport.NoTimedLines).Write(report);
         return ExitNothingSaved;
       }
 
-      string output = Path.GetFullPath(o.Output ?? RetimerIO.DefaultOutputPath(o.Target));
       if (o.Output == null && File.Exists(output))
         throw new IOException($"Output already exists, pass --output to overwrite: {output}");
 
@@ -188,12 +225,68 @@ Supported formats: .ass, .ssa, .srt";
       stderr.WriteLine($"{engine.Reference!.FileName}: {engine.ReferenceLines.Count} lines, " +
                        $"{engine.Target!.FileName}: {engine.TargetLines.Count} lines");
       foreach (var seg in segments) stderr.WriteLine("  " + AutoAlign.Describe(seg));
-      stderr.WriteLine($"average mismatch (matched lines): {before.Matched:0.000}s -> {after.Matched:0.000}s");
+      stderr.WriteLine(FormattableString.Invariant(
+        $"average mismatch (matched lines): {before.Matched:0.000}s -> {after.Matched:0.000}s"));
+
+      // Printed with or without a threshold: it is the number a threshold is
+      // chosen from.
+      var coverage = engine.ReferenceCoverage();
+      stderr.WriteLine(FormattableString.Invariant(
+        $"reference covered: {coverage.Percent}% ({coverage.Covered} of {coverage.Counted} lines)"));
+
+      // The two outcomes below differ only in how they end.
+      void WriteReport(int exitCode, string? savedPath, string? reason)
+      {
+        if (report == null) return;
+        new AutoReport(AutoReport.CurrentVersion, ReportFile.Of(engine.Reference!), ReportFile.Of(engine.Target!),
+          output, segments.Select(ReportSegment.Of).ToList(),
+          ReportCoverage.Of(coverage), ReportMatched.Of(engine.TargetMatched()),
+          new ReportMismatch(new ReportAverages(before.All, before.Matched), new ReportAverages(after.All, after.Matched)),
+          o.MinMatch, exitCode, savedPath, reason).Write(report);
+      }
+
+      // The gate comes before Save, so a refused alignment writes nothing and
+      // an existing --output keeps its bytes. 0, the default, is off.
+      double minMatch = o.MinMatch ?? 0;
+      if (minMatch > 0 && coverage.Share < minMatch)
+      {
+        stderr.WriteLine(FormattableString.Invariant(
+          $"subsretimer: reference covered {coverage.Percent}% is below --min-match {minMatch}; nothing saved"));
+        WriteReport(ExitNothingSaved, null, AutoReport.BelowMinMatch);
+        return ExitNothingSaved;
+      }
 
       string saved = engine.Save(output);
       stderr.WriteLine("saved " + saved);
+      // Before stdout: a caller that reads the printed path finds the report
+      // already there. If it cannot be written the run is an error and stdout
+      // stays empty, though the saved file remains.
+      WriteReport(ExitSaved, saved, null);
       if (o.PrintOutput) { stdout.WriteLine(saved); stdout.Flush(); }
       return ExitSaved;
+    }
+
+    /// <summary>
+    /// Delete a report left at <c>--report</c> by an earlier run, before any
+    /// input is read, so a run that fails leaves none and a caller never
+    /// takes an old report for this run's. A folder that does not exist
+    /// fails here, before anything is saved; so does a report path that
+    /// names one of the run's own files, which deleting would destroy.
+    /// Returns the report's full path.
+    /// </summary>
+    private static string RemoveStaleReport(Options o, string output)
+    {
+      string report = Path.GetFullPath(o.Report!);
+      var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+      foreach (var (name, path) in new[] { ("REFERENCE", o.Reference!), ("TARGET", o.Target!), ("--output", output) })
+        if (string.Equals(report, Path.GetFullPath(path), comparison))
+          throw new ArgumentException($"--report names the same file as {name}: {report}");
+
+      string? folder = Path.GetDirectoryName(report);
+      if (folder != null && !Directory.Exists(folder))
+        throw new DirectoryNotFoundException($"--report: folder not found: {folder}");
+      File.Delete(report);
+      return report;
     }
 
     /// <summary>

@@ -12,8 +12,13 @@ namespace SubsRetimer.Core
     /// <summary>Only reference lines within this distance of a target line vote for an offset.</summary>
     public int WindowMs { get; init; } = 10 * 60 * 1000;
 
-    /// <summary>Maximum number of distinct candidate offsets.</summary>
-    public int MaxCandidates { get; init; } = 8;
+    /// <summary>
+    /// Maximum number of distinct candidate offsets. The peak of a short block
+    /// (40 lines of 300) can rank below a few chance peaks of the histogram. In
+    /// simulated closed-caption pairs 8 sometimes left it out, and 16 let a chance
+    /// offset take a dozen lines next to a cut.
+    /// </summary>
+    public int MaxCandidates { get; init; } = 12;
 
     /// <summary>Cost of changing offset between consecutive lines, in units of "one fully overlapping line".</summary>
     public double SwitchPenalty { get; init; } = 2.5;
@@ -138,9 +143,22 @@ namespace SubsRetimer.Core
         }
       }
 
+      // Smooth with a triangle over ±2 bins (weights 1, 2, 3, 2, 1) before picking
+      // peaks. Two subtitlers' starts differ by a few hundred ms, which spreads one
+      // true offset over several bins; unsmoothed, that noisy top can hold two maxima
+      // more than 3 bins apart, both taking candidate slots, and a short block's
+      // smaller peak loses its slot. Summing the neighbours also lifts such a peak
+      // above the chance ones. A triangle keeps a sharp peak where it is (a box would
+      // make it a plateau) and two offsets 4 bins apart as two peaks; a wider kernel
+      // would merge them.
+      var smoothed = new Dictionary<long, int>();
+      foreach (var (bin, count) in hist)
+        for (int d = -2; d <= 2; d++)
+          smoothed[bin + d] = smoothed.GetValueOrDefault(bin + d) + count * (3 - Math.Abs(d));
+
       // Peaks with non-maximum suppression (±3 bins).
       var picked = new List<long>();
-      foreach (var (bin, _) in hist.OrderByDescending(p => p.Value).ThenBy(p => Math.Abs(p.Key)))
+      foreach (var (bin, _) in smoothed.OrderByDescending(p => p.Value).ThenBy(p => Math.Abs(p.Key)))
       {
         if (picked.Count >= o.MaxCandidates) break;
         if (picked.Any(p => Math.Abs(p - bin) <= 3)) continue;

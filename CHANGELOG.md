@@ -11,6 +11,8 @@
 - Windows: `make publish-windows` produces a self-contained `win-x64` build with the GTK 4 runtime bundled, and a `v*` tag publishes it as a zip. Its scripts run under PowerShell 7 when it is installed and under Windows PowerShell 5.1 otherwise.
 - With `--print-output` the editor prints each saved path the moment the file is written, as `--auto` does, instead of only when the window closes.
 - `--check-editor` says whether the editor can start here (GTK 4 loads, a display opens) without opening it; the Windows release's smoke test now runs it, so a bundle whose GTK does not start fails the release.
+- `--auto` prints how much of the reference the retimed target covers (`reference covered: 97% (291 of 300 lines)`: the reference lines of which the target lines together cover at least half), and `--min-match FRACTION` saves only when that share is reached, else saves nothing and exits 2. Off by default.
+- `--report PATH` writes a JSON report of an `--auto` run that exits 0 or 2 (the inputs, the segments, the coverage, the average mismatch, the exit code and the saved path or why nothing was saved); a report already at that path is deleted before the inputs are read.
 
 **Fixed:**
 - Undoing back to the loaded or saved state no longer leaves the file marked as changed.
@@ -32,6 +34,8 @@
 - The timeline draws Japanese (and any script "Sans" lacks) through Pango instead of as empty boxes.
 - The timeline's `+` and `-` buttons now work from the keyboard (Space, Enter).
 - Auto Align repaints the window once instead of once per segment, a save repaints only the title, and loading a file fills its list in one step.
+- Auto-align could leave a whole block of lines tens of seconds off when the two files' timings differ by a few hundred ms per line, as two subtitlers' do: that block's offset was missing from the candidates. The offset histogram is now smoothed before its peaks are picked, and up to 12 candidates are kept instead of 8.
+- Redirected stdout and stderr are written as UTF-8 without a byte-order mark. They were written in the console's encoding (outside Windows, the locale's charset), in which a Japanese path printed for subs2srs on Windows could come out as `?`.
 
 ## 0.1.0
 

@@ -2,6 +2,7 @@
 //  SPDX-License-Identifier: GPL-3.0-or-later
 
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
 using SubsRetimer.Core;
@@ -10,7 +11,7 @@ using Xunit;
 
 namespace SubsRetimer.Tests
 {
-  public class CliTests
+  public partial class CliTests
   {
     private static (int Code, string Out, string Err) Run(params string[] args)
     {
@@ -28,6 +29,19 @@ namespace SubsRetimer.Tests
         double off = i >= 40 ? 15000 : 0;
         target.Add(new RetimerLine { Start = reference[i].Start + TimeSpan.FromMilliseconds(off), End = reference[i].End + TimeSpan.FromMilliseconds(off), Text = "t" + i, RawIndex = i });
       }
+      return (Fixtures.WriteTemp(".srt", Fixtures.SrtFile(reference)), Fixtures.WriteTemp(".ass", Fixtures.AssFile(target)));
+    }
+
+    /// <summary>
+    /// A pair whose TARGET has only the first half of REFERENCE's dialogue,
+    /// 15 s late: it aligns cleanly, and covers 60 of the 120 reference lines.
+    /// </summary>
+    private static (string Ref, string Tgt) MakeHalfPair()
+    {
+      var reference = Fixtures.Dialogue(120);
+      var target = reference.Take(60)
+        .Select((l, i) => new RetimerLine { Start = l.Start + TimeSpan.FromSeconds(15), End = l.End + TimeSpan.FromSeconds(15), Text = "t" + i, RawIndex = i })
+        .ToList();
       return (Fixtures.WriteTemp(".srt", Fixtures.SrtFile(reference)), Fixtures.WriteTemp(".ass", Fixtures.AssFile(target)));
     }
 
@@ -144,6 +158,148 @@ namespace SubsRetimer.Tests
       var r = Run("--auto", rf, empty);
       Assert.Equal(Cli.ExitNothingSaved, r.Code);
       Assert.Equal("", r.Out);
+    }
+
+    [Fact]
+    public void Parse_MinMatch()
+    {
+      Assert.Null(Cli.Parse(new[] { "--auto", "a.srt", "b.ass" }).MinMatch);
+      Assert.Equal(0.85, Cli.Parse(new[] { "--auto", "--min-match", "0.85", "a.srt", "b.ass" }).MinMatch);
+      Assert.Equal(0.0, Cli.Parse(new[] { "--min-match", "0", "--auto" }).MinMatch);
+      Assert.Equal(1.0, Cli.Parse(new[] { "--auto", "--min-match", "1" }).MinMatch);
+      Assert.Throws<ArgumentException>(() => Cli.Parse(new[] { "--auto", "--min-match" }));
+    }
+
+    [Theory]
+    [InlineData("-0.1")]
+    [InlineData("1.01")]
+    [InlineData("NaN")]
+    [InlineData("Infinity")]
+    [InlineData("0,85")]
+    [InlineData("85%")]
+    [InlineData("")]
+    public void Auto_MinMatchNotAFractionFromZeroToOne_ExitsOneWithUsage(string value)
+    {
+      var (rf, tg) = MakePair();
+      var r = Run("--auto", "--min-match", value, "--print-output", rf, tg);
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.Contains("--min-match takes a number from 0 to 1", r.Err);
+      Assert.Contains("Usage:", r.Err);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(tg)));
+    }
+
+    [Fact]
+    public void MinMatch_WithoutAuto_ExitsOneBeforeTheEditor()
+    {
+      var (rf, tg) = MakePair();
+      bool opened = false;
+      var r = WithEditorSeams(
+        probe: Ready,
+        runWindow: _ => { opened = true; return Array.Empty<string>(); },
+        () => Run("--min-match", "0.5", rf, tg));
+
+      Assert.Equal(Cli.ExitError, r.Code);
+      Assert.False(opened);
+      Assert.Equal("", r.Out);
+      Assert.Contains("--min-match requires --auto", r.Err);
+      Assert.Contains("Usage:", r.Err);
+    }
+
+    [Fact]
+    public void Auto_AlwaysPrintsTheReferenceCoverage_AndWithoutMinMatchSavesAsBefore()
+    {
+      var (rf, tg) = MakePair();
+      var full = Run("--auto", rf, tg);
+      Assert.Equal(Cli.ExitSaved, full.Code);
+      Assert.Contains("reference covered: 100% (120 of 120 lines)" + Environment.NewLine, full.Err);
+
+      var (hrf, htg) = MakeHalfPair();
+      var half = Run("--auto", "--print-output", hrf, htg);
+      Assert.Equal(Cli.ExitSaved, half.Code);
+      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(htg)) + Environment.NewLine, half.Out);
+      Assert.Contains("reference covered: 50% (60 of 120 lines)" + Environment.NewLine, half.Err);
+    }
+
+    [Fact]
+    public void Auto_BelowMinMatch_ExitsTwoAndWritesNothing()
+    {
+      var (rf, tg) = MakeHalfPair();
+      string output = Path.Combine(Path.GetDirectoryName(tg)!, "chosen.ass");
+
+      var r = Run("--auto", "--min-match", "0.9", "--print-output", "-o", output, rf, tg);
+
+      Assert.Equal(Cli.ExitNothingSaved, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.False(File.Exists(output));
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(tg)));
+      Assert.Contains("reference covered: 50% (60 of 120 lines)", r.Err);
+      Assert.Contains("subsretimer: reference covered 50% is below --min-match 0.9; nothing saved", r.Err);
+      Assert.DoesNotMatch("(?m)^saved ", r.Err);
+
+      // Without --output, the default output is not written either.
+      var d = Run("--auto", "--min-match", "0.9", "--print-output", rf, tg);
+      Assert.Equal(Cli.ExitNothingSaved, d.Code);
+      Assert.Equal("", d.Out);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(tg)));
+    }
+
+    [Fact]
+    public void Auto_BelowMinMatch_LeavesAnExistingOutputAsItWas()
+    {
+      var (rf, tg) = MakeHalfPair();
+      string output = Path.Combine(Path.GetDirectoryName(tg)!, "earlier.ass");
+      byte[] earlier = Encoding.UTF8.GetBytes(Fixtures.AssFile(Fixtures.Lines(3), "\r\n"));
+      File.WriteAllBytes(output, earlier);
+
+      var r = Run("--auto", "--min-match", "0.75", "--print-output", "-o", output, rf, tg);
+
+      Assert.Equal(Cli.ExitNothingSaved, r.Code);
+      Assert.Equal("", r.Out);
+      Assert.Equal(earlier, File.ReadAllBytes(output));
+    }
+
+    [Fact]
+    public void Auto_MinMatchMet_SavesAsBefore()
+    {
+      // Every line covered meets even 1.
+      var (rf, tg) = MakePair();
+      string output = Path.Combine(Path.GetDirectoryName(tg)!, "chosen.ass");
+      var r = Run("--auto", "--min-match", "1", "--print-output", "-o", output, rf, tg);
+      Assert.Equal(Cli.ExitSaved, r.Code);
+      Assert.Equal(Path.GetFullPath(output) + Environment.NewLine, r.Out);
+      Assert.True(File.Exists(output));
+      Assert.DoesNotContain("below", r.Err);
+
+      // Exactly at the threshold is enough: "at least".
+      var (hrf, htg) = MakeHalfPair();
+      var half = Run("--auto", "--min-match", "0.5", "--print-output", hrf, htg);
+      Assert.Equal(Cli.ExitSaved, half.Code);
+      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(htg)) + Environment.NewLine, half.Out);
+    }
+
+    [Fact]
+    public void Auto_MinMatch_ReadAndWrittenWithADotInEveryCulture()
+    {
+      // In process the culture is the machine's (the shipped executable is
+      // built with invariant globalization); German writes 0,9.
+      var (rf, tg) = MakeHalfPair();
+      var culture = CultureInfo.CurrentCulture;
+      (int Code, string Out, string Err) dot, comma;
+      try
+      {
+        CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+        dot = Run("--auto", "--min-match", "0.9", rf, tg);
+        comma = Run("--auto", "--min-match", "0,9", rf, tg);
+      }
+      finally { CultureInfo.CurrentCulture = culture; }
+
+      Assert.Equal(Cli.ExitNothingSaved, dot.Code);
+      Assert.Contains("is below --min-match 0.9;", dot.Err);
+      Assert.Matches(@"average mismatch \(matched lines\): \d+\.\d{3}s -> \d+\.\d{3}s", dot.Err);
+      Assert.Equal(Cli.ExitError, comma.Code);
+      Assert.False(File.Exists(RetimerIO.DefaultOutputPath(tg)));
     }
 
     [Fact]
@@ -486,7 +642,7 @@ namespace SubsRetimer.Tests
       var r = RunProcess(new[] { "--auto", "--print-output", rf, tg });
 
       Assert.Equal(0, r.Code);
-      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + "\n", r.Out);
+      Assert.Equal(Path.GetFullPath(RetimerIO.DefaultOutputPath(tg)) + Environment.NewLine, r.Out);
       Assert.Contains("saved", r.Err);
     }
 
@@ -501,6 +657,9 @@ namespace SubsRetimer.Tests
       {
         RedirectStandardOutput = true,
         RedirectStandardError = true,
+        // Both streams are decoded as UTF-8, as subs2srs reads them, not in
+        // whatever this machine's console uses; stdout below, by hand.
+        StandardErrorEncoding = Utf8,
         UseShellExecute = false
       };
       psi.ArgumentList.Add(exe);
@@ -508,7 +667,10 @@ namespace SubsRetimer.Tests
       configure?.Invoke(psi);
 
       using var p = Process.Start(psi)!;
-      var stdout = p.StandardOutput.ReadToEndAsync();
+      // stdout as bytes: a StreamReader drops a leading byte order mark
+      // without a word, and the contract has none. GetString keeps one, as
+      // U+FEFF before the first path, where an exact comparison sees it.
+      var stdout = ReadAllBytesAsync(p.StandardOutput.BaseStream);
       var stderr = p.StandardError.ReadToEndAsync();
       // A child that opened a window after all would wait for a user forever;
       // end it and fail instead of hanging the test run.
@@ -519,8 +681,17 @@ namespace SubsRetimer.Tests
         Assert.Fail($"subsretimer {string.Join(" ", args)} did not exit within {ProcessTimeout}");
       }
       p.WaitForExit();   // drains the redirected streams
-      return (p.ExitCode, stdout.Result, stderr.Result);
+      return (p.ExitCode, Utf8.GetString(stdout.Result), stderr.Result);
     }
+
+    private static async Task<byte[]> ReadAllBytesAsync(Stream stream)
+    {
+      using var bytes = new MemoryStream();
+      await stream.CopyToAsync(bytes);
+      return bytes.ToArray();
+    }
+
+    private static readonly Encoding Utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(60);
   }
