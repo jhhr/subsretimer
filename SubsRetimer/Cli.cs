@@ -56,8 +56,8 @@ Options:
                           this share of REFERENCE's lines (0 to 1; default
                           0, off), else save nothing and exit 2
   --report PATH           with --auto: write a JSON report of the run to
-                          PATH when it exits 0 or 2; a file already there
-                          is deleted first, so an error leaves none
+                          PATH when it exits 0 or 2; a report already
+                          there is deleted before the files are read
   --ref-encoding NAME     encoding of REFERENCE (default: utf-8)
   --target-encoding NAME  encoding of TARGET (default: utf-8)
   --print-output          print the path of each saved file to stdout

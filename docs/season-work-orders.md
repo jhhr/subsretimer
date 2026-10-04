@@ -111,7 +111,7 @@ throwaway scripts in files in the scratchpad.
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 1.1)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 1.4: phase 1 complete)
 
 - The editor branch is merged (`main` at `a209301`, merged into this branch). 143 unit
   tests pass after phase 1.1.
@@ -162,7 +162,7 @@ throwaway scripts in files in the scratchpad.
 
 ## 4. Phases
 
-Done: 1.1, 1.1b, 1.2, 1.3.
+Done: 1.1, 1.1b, 1.2, 1.3, 1.4 (phase 1 complete).
 
 ### 1.1 — Coverage and `--min-match` (spec S1)
 
@@ -240,9 +240,9 @@ differ by a few hundred ms per line, so this is likely in phase 0 too.
 
 ### Later phases (subs2srs)
 
-Phases 2 and 3 run in `jhhr/subs2srs`. Their work orders are written in that
-repository's `docs/` when phase 1 is done; the draft cut is in the spec under
-"Phases".
+Phases 2 and 3 run in `jhhr/subs2srs`, from their own work orders in
+`docs/season-work-orders-subs2srs.md` (this repository). This file is the archive of
+phase 1.
 
 ## 5. Log (newest last; 25 lines at most per entry)
 
@@ -401,3 +401,11 @@ bad `--min-match`, `--auto` with one file, `--output ""`); `Cli.Usage` says "a f
 there is deleted first, so an error leaves none". The README says to read the report only
 after exit 0 or 2. Also `--auto --report R --help` exits 0 with no report.
 Left open: the `v*` tag (user); phase 2 work orders in subs2srs. 159 unit tests pass.
+
+
+### Lead — 2026-10-04 — after phase 1.4 (phase 1 complete)
+Reviewed the README, CHANGELOG and plan diffs; 159 passed on my own run; the README's
+usage block matches `--help` byte for byte. Fixed the `--report` usage line, which said
+"an error leaves none": a bad command line exits 1 before the delete. It now says the
+report is deleted before the files are read (Cli.cs and README). Windows CI: 157 passed,
+2 Linux-only skipped. Not done: a `v*` tag (the user's call).
