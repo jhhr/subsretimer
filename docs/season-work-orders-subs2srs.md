@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.6: phase 2 complete)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.1)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -185,6 +185,17 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   `out\win-x64` after the app (the shared files come out byte-identical);
   `smoke.ps1` checks `subs2srs-cli.exe --version` and `go --help`; `release.yml` runs
   by hand (`workflow_dispatch`, version `0.0.0-dev`, no release without a tag).
+- Phase 3.1: `subs2srs/MkvTracks.cs`: `MkvTrackInfo` (`IsText`, `IsImage`, `IsEnglish`,
+  `Label` like `3 "English" 312 ev`), `Parse(json)`, `Pick(tracks, trackId?)` (track or
+  reason), `ListAsync`/`PickAsync(file, trackId?, ct)` (`mkvmerge --output-charset UTF-8
+  -J <full path>`; exit 1 = warnings, OK; every failure a reason, only a cancel throws),
+  `MkvTracks.StartInfo(exe, args)` (sets `LC_ALL=C.UTF-8` off Windows when the locale is
+  not UTF-8: mkvmerge drops non-ASCII names and cuts `-J` output otherwise),
+  `RunnerOverride` (gets the `ProcessStartInfo`, returns `CliProcessResult`).
+  `ConstantSettings.ExeMkvMerge`; `ResolveTool` searches `%ProgramFiles%\MKVToolNix` and
+  `%ProgramFiles(x86)%\MKVToolNix` after PATH for the three mkv tools on Windows
+  (`MkvToolNixDirs`, `MkvToolNixDirsOverride`). `[RequiresMkvToolnixFact]`. Fixtures in
+  `subs2srs.Tests/Fixtures/mkv/`. CI installs MKVToolNix (d7911ff). Unit 665 / 4 skipped.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -242,7 +253,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5, 2.6 (phase 2 complete).
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5, 2.6 (phase 2 complete), 3.1.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -440,7 +451,10 @@ PowerShell). Facts checked by the lead (2026-10-04, subs2srs at 3f31e62):
 
 #### 3.2 — Extraction (spec B3)
 
-- `mkvextract <mkv> tracks <id>:<out>` through `makeToolStartInfo`; skip an existing
+- Build the process with `MkvTracks.StartInfo(exe, args)` (the locale fix of 3.1:
+  mkvextract has the same non-ASCII problem under a C locale) and pass full paths (a
+  name starting with `@` is read as an option file).
+- `mkvextract <mkv> tracks <id>:<out>`; skip an existing
   output; exit 2 or more fails the episode and deletes the partial file; the error text
   is kept for the table. The output name is `s2s/<video name>.en.<ext>` with `<ext>`
   from the codec (ASS/SSA → `ass`/`ssa`, UTF8 → `srt`).
@@ -770,3 +784,10 @@ The next phase must know: use `MkvTracks.StartInfo(exe, args)` for mkvextract to
 path (a name starting with `@` is an option file). `CliProcessResult` is reused as the runner's result.
 CI: the new real test skips without `mkvtoolnix` (apt) installed; the rest run anywhere (fake `mkvmerge` in a Tools Dir).
 Left open: `--output-charset UTF-8` on Windows is unverified (no Windows here). Unit 665 passed / 4 skipped (Debug, Release).
+
+### Lead — 2026-10-04 — after phase 3.1
+Reviewed `MkvTracks` and the `ResolveTool` change; Release unit 665 / 4 skipped on my own
+run; pushed bf4b5de. Added MKVToolNix to both CI jobs (apt; Chocolatey into Program
+Files) so the real-mkvmerge tests run there (d7911ff). Kept the agent's choices: exit 1
+from mkvmerge is warnings; `--track` accepts any text track, Japanese or forced too;
+WebVTT is not a text track for us. The locale finding goes into 3.2's work order.
