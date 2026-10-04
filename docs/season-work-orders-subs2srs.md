@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.3b)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.4)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -236,6 +236,21 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   `EditorCommand`, `Ready`, `Column`). With no JP or no EN file it touches nothing (a
   `.ja` file may stay: leave a not-Ready episode out of `go`); it deletes files in every
   other path, so `--dry-run` must not call it. It prints nothing. Unit 782 / 4 skipped.
+- After phase 3.4 (dd759c0): `subs2srs.Cli/SeasonCommand.cs`: `RunAsync(options, stdout,
+  stderr, token)` (dispatched from `CliRunner.RunAsync` on `options.Command`) builds one
+  mutable `SeasonEpisode` per video (`Video`, `Pick`, `Extraction`, `En`, `Jp`,
+  `Retime`, the dry run's `EnPlan`/`RetimePlan`, `Cancelled`); the table is
+  `Columns(options)`, a list of `SeasonColumn(Header, Cell)`, printed by `PrintReport`
+  (table, track note, `retimed JP files: k of n episodes; exit N`, editor commands).
+  `CliOptions`: `season <dir>` positional, `Track`, `MinMatch`, `Force`, `Only`
+  (`SeasonStage` Extract/Retime; `--only go` refused until 3.4b); go's `--grouping` and
+  `--season` refused on season. `EpisodeList.SeasonVideos(dir)` (the `*.mkv`, sorted).
+  `RetimeStage.WouldKeep` shared by run and dry run. `MkvTracks.PickAsync` refuses a
+  non-Matroska container. `CliRunner.GoAsync` is still one method: `LoadProject`,
+  `FromSeason`, `SetUpSeasonRun` (sets `EpisodeNumbers` from the ready episodes), checks,
+  `AiPrePass`, `SubsProcessor.StartAsync`, `PrintTable`. Unit 809 / 4 skipped.
+- A stray empty file `/dummy` (outside both repositories) was left by phase 3.4's agent;
+  the user decides about it. Do not create files outside the repositories and `$S`.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -615,6 +630,15 @@ this) first; reuse them, do not re-implement.
   `--dry-run` writes and deletes nothing. Parsing and the table without mkvmerge.
 
 #### 3.4b — `subs2srs-cli season`: the cards (spec D, Design 6 and 8, End state)
+
+Lead's facts (after 3.4): `CliRunner.GoAsync` (`CliRunner.cs:114-200`) is one method
+from `LoadProject` to `PrintTable`; split it so `go` and `season` share the part from
+the episode list on (checks, `AiPrePass`, `SubsProcessor.StartAsync`, the TSV cleanup,
+the exit code) and `season` gets back what its AI, Status and Cards columns need,
+without printing `go`'s own table. An episode `season` leaves out of `go` is a skipped
+`Episode` in the `EpisodeList` (so `SetUpSeasonRun` numbers the others as before:
+episode *k* stays *k*), its reason the retime's. `SeasonCommand.Columns` takes the new
+columns; its last line becomes `go`'s season TSV line.
 
 - After the retime stage, `go --season` in the same process for the episodes whose
   retime is `Ready` only (the others keep the `.ja` file they may have, an editor fix
@@ -1051,3 +1075,11 @@ A missing subsretimer is not checked up front (3.3b's rule); a dry run warns. Pe
 runs only. For 3.4b: append AI/Status/Cards to `Columns`, replace the last line by go's TSV line; `SeasonEpisode.Video` is the
 same full path `EpisodeList.FromSeason` gives.
 Unit 809 passed / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 805 / 8 skipped unset (Release). No UI file touched.
+
+### Lead — 2026-10-04 — after phase 3.4
+Reviewed `SeasonCommand`, the options and the container check; Release unit 809 / 4
+skipped (fresh `SUBSRETIMER_EXE`), 805 / 8 unset; pushed dd759c0. Kept the agent's
+choices (EN extracted without a JP file; no deletes without a pick; tables per mode;
+the dry run's columns). The agent left an empty `/dummy` outside the repositories; its
+delete was blocked and is the user's call. 3.4b's work order gained the facts about
+`GoAsync`.
