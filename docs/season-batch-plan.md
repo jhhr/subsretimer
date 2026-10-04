@@ -200,15 +200,17 @@ align by hand, then run again:
     yet.
   - A `windows-latest` unit-test job in `ci.yml`. Today the only Windows run is
     the smoke test, at release time.
-    `CliTests.RealProcess_HonoursStdoutContract` (`CliTests.cs:645`) will fail
-    there as written: it expects the path followed by `"\n"`, and `WriteLine`
-    ends lines with `"\r\n"` on Windows. The subs2srs launcher trims every
-    line, so the contract itself holds; the test should compare against
-    `Environment.NewLine`.
+    `CliTests.RealProcess_HonoursStdoutContract` expected the path followed
+    by `"\n"`, which fails there: `WriteLine` ends lines with `"\r\n"` on
+    Windows. Since phase 1.3 it compares against `Environment.NewLine`. The
+    subs2srs launcher trims every line, so the contract itself holds.
   - **Japanese paths on stdout.** A saved path printed with `--print-output`
     must reach subs2srs intact.
     - .NET picks stdout's encoding on Windows from whether the child has a
       console: the console's code page if it has one, UTF-8 if it has none.
+      Elsewhere it takes the charset in `LC_ALL`, `LC_MESSAGES` or `LANG`:
+      with `LC_ALL=en_US.ISO-8859-1` a redirected Japanese path came out as
+      `?` on Linux too (checked 2026-10-04, before phase 1.3).
     - Write UTF-8 whenever stdout is redirected, so the path does not depend on
       how the tool was started. The same for stderr, which carries file names
       in its messages and which subs2srs shows. C2 makes the reading side
@@ -433,6 +435,7 @@ redoing.
    - 1.2 S2, `--report`. Done 2026-10-04 (753a90f, e74f258).
    - 1.3 S3, UTF-8 output when redirected, and the stdout tests made to hold on
      Windows. The lead adds the `windows-latest` job and the `smoke.ps1` pair.
+     Done 2026-10-04 (66d5b18, eadb3e4).
    - 1.4 S4, documentation.
 2. **subs2srs A.** The biggest phase. Its agent phases are cut, and their work
    orders written in subs2srs's `docs/`, once phase 1 is done. The draft cut:
@@ -675,7 +678,8 @@ repository.
   then `PATH`.
 - subsretimer `--auto` with an explicit `--output` overwrites (`Cli.RunAuto`).
   `CliTests.RealProcess_HonoursStdoutContract` runs `dotnet subsretimer.dll`
-  and expects stdout to be exactly the path plus `"\n"` (`CliTests.cs:645`).
+  and expects stdout to be exactly the path plus `Environment.NewLine` (since
+  phase 1.3; it expected `"\n"` before, which fails on Windows).
 - After the editor merge, subsretimer's command line (`SubsRetimer/Cli.cs`)
   behaves as follows:
   - `LoadChecked` refuses a TARGET with bytes invalid in its encoding

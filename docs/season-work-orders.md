@@ -341,3 +341,29 @@ The next phase must know: `Program.cs` untouched. Left open: `--report ""` fails
 Reviewed the diff; 157 passed on my own run. Ran the built exe on a pair with Japanese
 file names under `--min-match 0.9 --report`: exit 0, report readable, names unescaped.
 Kept the agent's two additions (same-file refusal, early missing-folder failure).
+
+### Phase 1.3 — 2026-10-04 — 66d5b18, eadb3e4
+Built: `Program.Main` swaps in `Program.Utf8Writer(stream)` (`StreamWriter`, `new
+UTF8Encoding(false)`, `AutoFlush = true`) with `Console.SetOut`/`SetError` for each stream
+that is redirected; a console keeps .NET's writer; `Console.OutputEncoding` untouched.
+`RunProcess` decodes stderr as UTF-8 (`StandardErrorEncoding`) and reads stdout as bytes
+from `BaseStream`, decoded with `GetString`, so a BOM shows as U+FEFF in every real-process
+test. `RealProcess_HonoursStdoutContract` expects `Environment.NewLine`. New, in
+`CliTests.Utf8.cs`: `RealProcess_JapaneseNames_ReachTheCallerIntact` (folder `字幕フォルダ-<guid>`
+under the temp `subsretimer-tests`, files `第1話 英語.srt`/`第1話 日本語.ass`, `CreateNoWindow`;
+exit 0, stdout exactly path + newline with no BOM, the file exists, stderr's `saved` line
+and both names in the summary; the folder deleted) and `Utf8Writer_...` (bytes, no BOM,
+there before any Flush).
+Choices / deviations: SetOut/SetError, so each stream has one writer and any later Console
+write is UTF-8 too. AutoFlush, not a flush at the end of Main: nothing flushes a
+StreamWriter at exit (checked in a scratch app). Found: outside Windows .NET takes a console
+stream's encoding from `LC_ALL`/`LC_MESSAGES`/`LANG`; with `LC_ALL=en_US.ISO-8859-1` the
+built exe printed the path as `??????` on Linux. The Japanese test sets that `LC_ALL` in the
+child (Windows ignores it), so it fails on Linux without the change; without it the test
+passes on Linux before and after, as the work order expected.
+Seen failing: the Japanese test without the two lines in Main; Utf8Writer, HonoursStdout
+and Japanese with a BOM-emitting encoding, and again without AutoFlush (stderr empty; stdout
+survives through Cli's own Flush). 159 unit tests pass.
+The next phase must know: redirected stdout/stderr are UTF-8 without BOM, lines end in
+`Environment.NewLine` (CRLF on Windows), for the README contract.
+Left open: nothing run on Windows; the code-page failure there awaits the windows-latest job.
