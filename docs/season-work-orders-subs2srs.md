@@ -936,3 +936,29 @@ passed. Merged `main` (ec77996, CI triggers) as the user asked: 95d3dfe, pushed.
 the agent's choices. For 3.3b: print the exe in the editor command as `subsretimer`
 when PATH finds that same file, else its full path. The Windows branch of the
 real-child cancel test runs first on CI.
+
+### Phase 3.3b — 2026-10-04 — 3ac375a
+Built: `subs2srs.Cli/RetimeStage.cs`. `FindJpFiles(season, videos[, names])` (C1, pure core): `<name>.<ext>` or `<name>.<tag>.<ext>`
+(ass/ssa/srt, ignoring case; the tag one word, no dot, not `en`/`eng`), compared as names; a file that is also a longer video's JP
+file is that one's (`Movie.Extended.srt`); `no JP file named like the video` / `2 JP files (a.srt, a.ja.srt)`. `FindEnFiles(season,
+videos[, s2sNames])` for `--only retime`, through `EpisodeList.Named`/`Problem` (now internal): go's reasons. `FoundFile(Path,
+Problem)`; `RetimeOptions(Exe, TargetEncoding, MinMatch, Force)`, `FromSettings` = `ResolveExe()` + `Subs[0].Encoding`.
+`RetimeAsync(season, video, jp, en, options, ct)` → `RetimeOutcome` (`Kind`, `OutputPath`, `Report`, `Reason`, `EditorCommand`,
+`Ready`, `Column`). No JP or EN: the episode's `.ja` files deleted. Kept: output non-empty, written after EN and JP, no `Force` (no
+tool needed), the other `.ja` deleted. Else `.ja` files and report deleted, exe null fails, then the launcher: `--auto --output
+s2s/<name>.ja.<JP ext, lower case> [--min-match] --report s2s/<name>.retime.json`, ref utf-8, target the Subs1 encoding, full paths.
+Not saved: the output deleted; exit 2 → kind by the report's reason (`NotSaved` without one) + `EditorCommand(CommandName(exe), ..)`;
+other codes → `Failed` with subsretimer's first `subsretimer: ` line (else its first line; the code unless 1). A cancel deletes the
+output and report and rethrows. So after the stage an episode has a `.ja` file exactly when `Ready`. `CommandName`: `subsretimer`
+when `ConstantSettings.FindInPath` gives the same full path. Columns: `kept`, `2 cuts, 97% of EN covered`, `below --min-match
+(41%)`, `no timed lines`, `not saved`, `failed: <message>`, the JP/EN reason; percentages floored as subsretimer prints them.
+Tests `RetimeStageTests` (41, 1 env-gated: the real tool on two episodes, one retimed then kept, one below 0.8 with its command; the
+names `go --season` takes). Seen failing: keep-if-newer ignoring the JP time; no sibling/stale delete (7); a plain prefix match (4).
+Choices: a tag is one word (`.ja.cc.srt` is not a JP file; the interim script took any rest). Only names go reads are deleted
+(`<name>.ja.<ass|ssa|srt>`; a `.ja.srt.bak` stays). No JP/EN file deletes even a newer `.ja` (an editor fix for a JP file that is
+gone or now has a second candidate): otherwise go makes cards the table calls skipped. Segments are printed as cuts, as the work
+order's example has it (a one-offset pair reads `1 cut`). The stage prints nothing: 3.4 owns the loop and its stderr lines.
+The next phase must know: give `FindJpFiles` every video of the folder; resolve the options once (a missing subsretimer fails only
+episodes not kept); a failed extraction is `FoundFile.Missing(..)`; `--dry-run` must not call `RetimeAsync` (it deletes). Keep-if-
+newer trusts mtimes: a JP file copied with its old time (Explorer keeps it) leaves the old retime kept; `--force` redoes it.
+Unit 775 passed / 4 skipped (Debug, Release; `SUBSRETIMER_EXE` = fresh build), 771 / 8 skipped unset (Release). No UI file touched.

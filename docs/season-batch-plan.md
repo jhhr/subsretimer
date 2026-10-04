@@ -508,7 +508,8 @@ redoing.
    - 3.2 B3: extraction. Done 2026-10-04 (2f77756).
    - 3.3 C2: the launcher's UTF-8 pipes, a cancel that stops subsretimer, the
      report and the editor command. Done 2026-10-04 (152bfb7).
-   - 3.3b C1 + C2: the JP lookup and the retime stage.
+   - 3.3b C1 + C2: the JP lookup and the retime stage. Done 2026-10-04
+     (3ac375a).
    - 3.4 D: `subs2srs-cli season`.
    - 3.5: documentation.
 4. **Optional: E.**
