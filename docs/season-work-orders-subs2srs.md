@@ -1151,3 +1151,24 @@ unchanged. Release unit 818 / 4 skipped (fresh `SUBSRETIMER_EXE`), 814 / 8 unset
 pushed 0a3803e. CI on dd759c0 green on both jobs (the real-mkvmerge season tests on
 Windows included). Kept the agent's choices; its open points (checks after the work,
 file times) go to open-items in 3.5, whose work order now lists the stale docs.
+
+### Phase 3.5 — 2026-10-04 — 18fc184
+Built (docs only, no code): README: intro and examples for both commands, a `go` subsection (`--deck` in the options
+block) and a `season` subsection (stages, folder layout, its options block, a real run's table and editor command,
+re-runs, what it deletes, tools, exit codes); dependencies and the Windows tool note name mkvmerge and the MKVToolNix
+folder. Both options blocks diffed against the real `--help`: verbatim. CHANGELOG: `season`, `--deck`, MKVToolNix
+folder fallback (GUI dialogs too), Re-Timer dialog cancel and UTF-8 pipes, tests, CI. architecture.md: `season`
+section (rows, columns, each stage's deletes, `ForGo` from the outcomes, UTF-8 Subs2, dry run), `go`'s split,
+`RunToolAsync` and the MKVToolNix start info, the launcher contract as built (`--min-match`, `--report`, UTF-8,
+`EditorCommand`, cancel). testing.md: `SUBSRETIMER_EXE`, the skip attributes, hooks to reset, fixtures, scripted
+runners, `SetBack`, the real child. open-items.md: deferred item 2 trimmed; new: checks after the work, keeping by
+name and time, plan E, Windows paths CI-only. gtk-and-windows.md: CI installs MKVToolNix. AGENTS.md: the CLI row.
+Spec: Status, "What works today", design 1/7/9, End state, B/C/D as built, phase 0 steps, phases, the script as fallback.
+Real output: a generated four-episode season in `$S/p35` (test-video recipe, 120 s; mkvmerge 82; subsretimer
+5d8475e on PATH; rules, `--no-prefs`, `--min-match 0.8`): dry run, run (exit 3), a re-run after a simulated
+editor fix (3 of 4, all `kept`), `--only extract|retime`. The documented PowerShell editor command, run in
+pwsh 7 against a stub, reached it as six intact arguments.
+Found: ci.yml's `push: branches: [default]` matches only a branch named `default`, so pushes to `main` run
+no CI (open-items; not fixed, `.github/`). Each CLI run's empty log rotates out older logs (10 kept): my
+runs' 5 deleted, but rotation had already removed 5 older ones (21:58-22:01). `SubsRetimerLauncher.IsAvailable`'s comment
+("found on PATH at startup") is stale. The script's code block is unchanged (byte-identical), not re-run.

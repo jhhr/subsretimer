@@ -3,12 +3,12 @@
 Status: revised 2026-09-28 with the user's answers (recorded under "Decisions
 from your answers"). Remaining points are at the end. Built by phase agents
 since 2026-10-04, from the work orders in `docs/season-work-orders.md`.
-Phase 1 (subsretimer, S1 to S4) is done (2026-10-04). Phase 2 (subs2srs A,
-`subs2srs-cli go`) is done (2026-10-04); its work orders and log are in
-`docs/season-work-orders-subs2srs.md`. Phase 3 (subs2srs B, C, D: extraction,
-retiming and `subs2srs-cli season`) is next. The user's phase 0 runs alongside;
-its numbers set the `--min-match` threshold, and no real season has been
-through `go` on Windows yet.
+Phase 1 (subsretimer, S1 to S4) is done (2026-10-04). Phases 2 and 3 (subs2srs
+A, `subs2srs-cli go`; B, C, D: extraction, retiming and `subs2srs-cli season`)
+are done (2026-10-04); their work orders and log are in
+`docs/season-work-orders-subs2srs.md`. The user's phase 0 runs alongside; its
+numbers set the `--min-match` threshold, which has no default until then, and
+no real season has been through `go` or `season` on Windows yet.
 
 Builds on the editor branch (`ui-editor`, PR #1), merged into `main` on
 2026-10-04. Revised then for what that branch already provides:
@@ -48,9 +48,9 @@ get their cards, with their real episode numbers.
 
 | Step | Today | Verdict |
 | --- | --- | --- |
-| Extract EN | `mkvextract <mkv> tracks <id>:<out>` works by hand. Checked 2026-09-28 on mkvtoolnix 82: it wrote a UTF-8 SRT with a BOM. The subs2srs Extract dialog extracts *every* subtitle track into a folder you pick, and ignores extraction errors. | Works by hand. |
-| Retime | `subsretimer --auto --output OUT -- EN JP` works per pair. An explicit `--output` overwrites, so re-runs work. Checked on an EN track extracted from an mkv with a 90 s cut: it found −90.000 s, with 2 of 2 lines matched. A JP file that does not decode in the given encoding is refused with exit 1, not saved garbled. Without `--auto` the same command opens the editor, whose Save writes to `--output`. | Works. The Windows bundle builds and passes its smoke test (Windows 10, 2026-10-04), but no release tag has been pushed, so no zip is published yet. Never tried on a real episode (phase 0). Since phase 1 a script can tell a pair that aligned badly as a whole from a good one, by `--min-match` and `--report` (S1, S2); the threshold is still to come from phase 0. |
-| Cards | Until phase 2, subs2srs had **no command line**: `Program.Main` ignores `args` and always starts GTK, the Windows exe is a `WinExe` with no console, and an episode could not be left out without renumbering the later ones. Since phase 2, `subs2srs-cli go --project P --season DIR` makes a season's cards, skipping an episode without both files and keeping the others' numbers. | Works on Linux and in the tests (Windows CI included). Not yet run on a real season, nor on Windows outside CI; no release tag ships it yet. |
+| Extract EN | `mkvextract <mkv> tracks <id>:<out>` works by hand. Checked 2026-09-28 on mkvtoolnix 82: it wrote a UTF-8 SRT with a BOM. The subs2srs Extract dialog extracts *every* subtitle track into a folder you pick, and ignores extraction errors. Since phase 3, `subs2srs-cli season` picks each video's EN track from `mkvmerge -J` and extracts it, and subs2srs finds MKVToolNix in `C:\Program Files\MKVToolNix` without `PATH`. | Works by hand, and in `season` on Linux and in the tests (Windows CI included). |
+| Retime | `subsretimer --auto --output OUT -- EN JP` works per pair. An explicit `--output` overwrites, so re-runs work. Checked on an EN track extracted from an mkv with a 90 s cut: it found −90.000 s, with 2 of 2 lines matched. A JP file that does not decode in the given encoding is refused with exit 1, not saved garbled. Without `--auto` the same command opens the editor, whose Save writes to `--output`. | Works. The Windows bundle builds and passes its smoke test (Windows 10, 2026-10-04), but no release tag has been pushed, so no zip is published yet. Never tried on a real episode (phase 0). Since phase 1 a script can tell a pair that aligned badly as a whole from a good one, by `--min-match` and `--report` (S1, S2); the threshold is still to come from phase 0. Since phase 3, `subs2srs-cli season` retimes every episode this way and prints the editor command for each pair it could not save. |
+| Cards | Until phase 2, subs2srs had **no command line**: `Program.Main` ignores `args` and always starts GTK, the Windows exe is a `WinExe` with no console, and an episode could not be left out without renumbering the later ones. Since phase 2, `subs2srs-cli go --project P --season DIR` makes a season's cards, skipping an episode without both files and keeping the others' numbers; since phase 3, `subs2srs-cli season DIR --project P` does all three steps in one command. | Works on Linux and in the tests (Windows CI included). Not yet run on a real season, nor on Windows outside CI; no release tag ships it yet. |
 
 ## Decisions from your answers (2026-09-28)
 
@@ -70,7 +70,10 @@ get their cards, with their real episode numbers.
    derived files away from the originals.
    - Each video's JP file is found by name. It is the subtitle file (`.ass`,
      `.ssa` or `.srt`) whose name is the video's name, optionally followed by a
-     tag: `Show - 01.srt` or `Show - 01.ja.srt`.
+     tag of one or more dot-separated words: `Show - 01.srt`, `Show - 01.ja.srt`
+     or `Show - 01.ja.cc.srt`. A tag with a word `en` or `eng` marks an English
+     file, which is not taken. Names are compared, ignoring case, never read as
+     a pattern; a name that is also a longer video's JP file is that video's.
    - An older extract named `Show - 01 - Track 03 - English.srt` does not match.
    - Zero or several matches skip that episode, and the summary names the files.
 2. **Episode numbers come from the sorted list of videos.** Episode *k* is the
@@ -104,7 +107,13 @@ get their cards, with their real episode numbers.
      Extraction skips EN files that exist.
    - A retime newer than both its EN and JP file is kept, so a fix saved from
      the editor (point 9) survives every later run. An older one is deleted
-     and done again. `--force` redoes them all.
+     and done again. `--force` redoes them all, the extractions too (needed
+     after a changed `--track` whose track has the same format: the file name
+     is the same).
+   - An episode whose JP or EN file cannot be told (none, or two) keeps its
+     `.ja` file, so an editor fix survives a renamed file; it is skipped.
+   - Keeping goes by file times: a JP file replaced by a copy that kept an
+     older time leaves the old retime kept, until `--force`.
    - Running the same command after the usage limit resets therefore only does
      the missing episodes, then rewrites the season TSV with every episode that
      is done.
@@ -120,7 +129,12 @@ get their cards, with their real episode numbers.
    - For each episode that subsretimer did not save (exit 2: below
      `--min-match`, or no timed lines), the summary prints the command that opens
      the editor on that pair:
-     `subsretimer [--target-encoding E] --output s2s\<name>.ja.<ext> s2s\<name>.en.<ext> <JP file>`.
+     `subsretimer --target-encoding E --output <dir>\s2s\<name>.ja.<ext> <dir>\s2s\<name>.en.<ext> <JP file>`,
+     every path in full and without `--` (PowerShell may drop it), quoted for
+     PowerShell (double quotes) on Windows and for a POSIX shell elsewhere. The
+     exe is `subsretimer` when that is the one on `PATH`, else its full path
+     (`& "..."` in PowerShell). `E` is the project's Subs1 encoding; the EN
+     file is UTF-8, so no `--ref-encoding`.
    - The editor's Save writes to `--output`, which is the file the batch looks
      for. The next run keeps it (point 7) and makes that episode's cards.
    - An episode that failed with exit 1 (an unreadable JP file, a wrong
@@ -129,25 +143,35 @@ get their cards, with their real episode numbers.
 
 ## End state
 
+Built in phase 3 (2026-10-04):
+
 ```powershell
-subs2srs-cli season 'D:\Anime\Show S1' --project 'D:\Anki\show.s2s.json' --deck Show_S1
+subs2srs-cli season 'D:\Anime\Show S1' --project 'D:\Anki\show.s2s.json' --deck Show_S1 --min-match 0.8
 ```
 
-`--dry-run` prints the table below without extracting, retiming or asking the
-model: the EN track each episode would use, its JP file, and whether its AI
-grouping is already cached. The table after a real run looks like this
-(illustrative):
+`--min-match` has no default until phase 0 gives a number; without it every
+retime is saved. `--dry-run` prints the plan without extracting, retiming,
+deleting or asking the model: the EN track each episode would use, whether its
+EN file is there, its JP file, whether its retime would be kept, and whether its
+AI grouping is already cached; then go's checks. The table after a real run, as
+`season` printed it on a generated four-episode season (a project grouping by
+the rules, hence `-` under AI; paths made Windows ones):
 
 ```
-Episode          EN track            Retime                         AI            Cards
-Show - 01        3 "English" 312 ev  2 cuts, 97% of EN covered      grouped       148
-Show - 02        3 "English" 305 ev  below --min-match (41%)        -             skipped
-Show - 03        3 "English" 298 ev  no JP file named like video    -             skipped
-Show - 04        3 "English" 301 ev  3 cuts, 95% of EN covered      usage limit   skipped
-season TSV: D:\Anki\Show_S1\Show_S1.tsv (1 of 4 episodes); exit 3
+Episode    EN track           Retime                           AI  Status                                    Cards
+Show - 01  3 "English" 47 ev  2 segments, 97% of EN covered    -   done                                      46
+Show - 02  3 "English" 45 ev  below --min-match (66%)          -   skipped: below --min-match (66%)          -
+Show - 03  3 "English" 44 ev  no JP file named like the video  -   skipped: no JP file named like the video  -
+Show - 04  3 "English" 44 ev  1 segment, 100% of EN covered    -   done                                      44
+season TSV: D:\Anki\Show S1\Show_S1.tsv (2 of 4 episodes); exit 3
 align by hand, then run again:
-  subsretimer --output 'D:\Anime\Show S1\s2s\Show - 02.ja.srt' 'D:\Anime\Show S1\s2s\Show - 02.en.ass' 'D:\Anime\Show S1\Show - 02.srt'
+  subsretimer --target-encoding utf-8 --output "D:\Anime\Show S1\s2s\Show - 02.ja.srt" "D:\Anime\Show S1\s2s\Show - 02.en.ass" "D:\Anime\Show S1\Show - 02.ja.srt"
 ```
+
+With AI grouping, the AI column says `grouped`, `cached`, `usage limit` and so
+on, as in `go`'s table. After the editor's Save for episode 2, the same command
+keeps every extraction and retime (`kept`) and makes the cards of episodes 1, 2
+and 4.
 
 ## Changes in subsretimer (this repository)
 
@@ -373,51 +397,96 @@ description is in subs2srs's README ("Command line") and `docs/architecture.md`
 
 ### B. EN track choice and extraction (inside `season`)
 
-- **B1. List tracks with `mkvmerge -J`**, not by parsing `mkvinfo` text
-  (`UtilsMkv.cs:54-151`, which matches English strings and reads neither the
-  track name nor the flags). Checked on mkvmerge 82, the JSON has
+Built in phase 3 (2026-10-04), as B, C and D describe; the lasting description
+is in subs2srs's README (`season`) and `docs/architecture.md` ("`season`:
+extract, retime, then `go`").
+
+- **B1. List tracks with `mkvmerge -J`** (`MkvTracks`), not by parsing `mkvinfo`
+  text (`UtilsMkv.cs:54-151`, which matches English strings and reads neither
+  the track name nor the flags). Checked on mkvmerge 82, the JSON has
   `properties.track_name`, `language`, `forced_track`, `default_track`,
   `codec_id` and `num_index_entries` (the event count). mkvmerge ships with
-  mkvextract, so there is no new dependency.
+  mkvextract, so there is no new dependency. Off Windows it runs under a UTF-8
+  locale: under the C locale mkvmerge drops a non-ASCII file name and cuts its
+  output. A container that is not Matroska (an MP4 named `.mkv`) is refused.
 - **B2. The pick.** Among English tracks (`eng`, or IETF `en`) with a text codec
   (`S_TEXT/ASS`, `SSA`, `UTF8`) that are not forced, take the one with the most
-  events.
-  - `--track ID` overrides.
+  events (a missing count is 0; a tie goes to the lower id).
+  - `--track ID` overrides, with any text track, Japanese or forced included
+    (how a mistagged track is used).
   - The *default* flag is useless: mkvmerge sets it on every track unless told
     otherwise, as seen in the 2026-09-28 check.
   - Image-only tracks (PGS, VobSub) skip the episode: subsretimer reads text,
-    and OCR is out of scope.
-  - The table warns when the pick differs between episodes.
-- **B3. Extraction** runs `mkvextract <mkv> tracks <id>:s2s\<name>.en.<ext>` and
-  skips an existing file.
+    and OCR is out of scope. WebVTT does not count as text either.
+  - A note under the table names the picks, by id and name, when they differ
+    between episodes.
+- **B3. Extraction** (`MkvExtract`) runs `mkvextract <mkv> tracks
+  <id>:s2s\<name>.en.<ext>` with full paths and keeps an existing non-empty
+  file without running it. The episode's other `s2s\<name>.en.*` files,
+  extractions of another track, are deleted first.
   - Exit code 2 or more fails the episode and deletes the partial file. The
     extract dialog drops errors today (`DialogMkvExtract.cs:345-346`).
+  - mkvmerge, mkvextract and mkvinfo are found in the *Tools Directory*, on
+    `PATH`, then in `%ProgramFiles%\MKVToolNix` and
+    `%ProgramFiles(x86)%\MKVToolNix`, which also fixes the GUI's MKV dialogs.
 
 ### C. Retime (inside `season`)
 
-- **C1.** Find the JP file by name (decision 1).
-- **C2. The launcher.** First make `SubsRetimerLauncher` use
-  `UtilsCommon.makeToolStartInfo`, so the pipes are UTF-8. Today a Japanese
-  path comes back garbled on Windows (subs2srs `docs/open-items.md`). Then, per
-  episode, call it with:
-  - `--output s2s\<name>.ja.<ext>`, `--min-match` (S1) and
-    `--report s2s\<name>.retime.json` (S2);
-  - `--target-encoding` set to the project's Subs1 encoding. The retimed file
+- **C1.** Find the JP file by name (design point 1; `RetimeStage.FindJpFiles`,
+  given every video of the folder).
+- **C2. The launcher.** `SubsRetimerLauncher` uses
+  `UtilsCommon.makeToolStartInfo`, so the pipes are UTF-8 and a Japanese path
+  comes back intact on Windows; a cancel kills subsretimer and is not mistaken
+  for exit 2. Per episode it is called with:
+  - `--auto`, `--output s2s\<name>.ja.<ext>` (the JP file's extension),
+    `--min-match` (S1) only when given, and `--report s2s\<name>.retime.json`
+    (S2), full paths after `--`;
+  - `--ref-encoding utf-8` (the EN file is mkvextract's) and
+    `--target-encoding` set to the project's Subs1 encoding. The retimed file
     keeps its encoding, so Subs1 then reads it correctly. A JP file that does
     not decode in that encoding fails with exit 1 and a message naming
-    `--target-encoding`, and the table shows that message.
+    `--target-encoding`, and the table shows that message (`failed: ...`).
 
-  An output newer than both its inputs is kept: an earlier run's, or a fix
-  saved from the editor (design point 9). Any other output under that
-  episode's name is deleted before retiming, so a failed retime never leaves a
-  stale file for `go` to pick up. `--force` redoes them all. For exit 2, the
-  table is followed by the editor command for that pair.
+  An output newer than both its inputs is kept without running subsretimer:
+  an earlier run's, or a fix saved from the editor (design point 9). Otherwise
+  every `.ja` output under that episode's name and its report are deleted
+  before retiming, and an output a failed or cancelled run left is deleted, so
+  a failed retime never leaves a stale file for `go` to pick up. A lookup
+  problem (no JP or EN file, or two) deletes nothing. `--force` redoes them
+  all. The Retime column reads `kept`, `2 segments, 97% of EN covered` (the
+  report's segments and `referenceCoverage.share`, rounded down),
+  `below --min-match (66%)`, `no timed lines`, `failed: <message>` or the
+  lookup problem. For exit 2, the table is followed by the editor command for
+  that pair (design point 9).
 
 ### D. `subs2srs-cli season`
 
 B, C and `go --season` in one process with one table and one `--dry-run`. The
 three stages can also run alone (`--only extract|retime|go`) when one needs
-redoing.
+redoing; `--only retime` takes the EN files already in `s2s` and needs no
+MKVToolNix.
+
+- `season DIR --project FILE [--track ID] [--min-match F] [--force] [--only
+  extract|retime|go] [--dry-run]`, with `go`'s `--deck NAME` (also new on
+  `go`), `--grouping rules|off`, `--yes`, `--verbose`, `--prefs`/`--no-prefs`.
+- The episodes are the folder's `*.mkv` in `go --season`'s order, cut at
+  *Episode End #*, one after another: pick, extract, retime. Then `go` runs in
+  the same process on the episodes whose retime is kept or new, from the retime
+  outcomes (a leftover `.ja` of another episode makes no cards); the others are
+  skipped with the retime's reason and keep their numbers. `--only go` takes
+  what `s2s` holds, as `go --season` does.
+- The EN files are read as UTF-8 whatever the project's Subs2 encoding, with
+  one warning when that differs.
+- One table: Episode, EN track, Retime, AI, Status, Cards; the track note;
+  `go`'s season TSV line with the exit code; the editor commands. Progress and
+  per-episode lines go to stderr. `--only extract` and `--only retime` show
+  their own columns and end with `EN files: k of n episodes; exit N` or
+  `retimed JP files: ...`.
+- Exit codes as design point 8. Before any work, exit 1 also for a folder
+  without `.mkv` files and for MKVToolNix not found (when the run extracts). A
+  missing subsretimer fails only the episodes that need a retime. `go`'s
+  checks run after the extraction and the retime, so a missing deck name or
+  ffmpeg shows only then (exit 1, the table printed, the work kept).
 
 ### E. Later, optional
 
@@ -444,11 +513,20 @@ redoing.
       - Without GTK, `dotnet publish SubsRetimer\SubsRetimer.csproj -c Release -o C:\Tools\subsretimer`
         is enough for `--auto`, but not for the editor.
       - If MKVToolNix is installed but `mkvmerge` is not found, add its folder
-        (`C:\Program Files\MKVToolNix` by default) to `PATH`. That also lets
-        the subs2srs MKV dialogs find it.
+        (`C:\Program Files\MKVToolNix` by default) to `PATH` to type its
+        commands. subs2srs (the MKV dialogs and `season`) looks there itself
+        since phase 3.
+      - `subs2srs-cli`: until a tag publishes the zip, build it in subs2srs
+        with `make publish-windows` (`out\win-x64` holds both exes).
    2. Run `mkvmerge -i 'Show - 01.mkv'` and note the EN track id and whether it
-      is ASS or SRT.
-   3. Extract and retime:
+      is ASS or SRT. Or let `season` show it for the whole folder without
+      changing anything:
+      `subs2srs-cli season 'D:\Anime\Show S1' --project 'D:\Anki\show.s2s.json' --dry-run`
+      (the EN track per episode, its JP file, and go's checks; `season` needs
+      a project saved from the GUI).
+   3. Extract and retime (or extract every episode's EN track into `s2s\` with
+      `season` and `--only extract`, then retime one pair by hand with
+      `s2s\Show - 01.en.ass` as the EN file):
       ```powershell
       mkvextract 'Show - 01.mkv' tracks 3:'Show - 01.en.ass'
       subsretimer --auto --output 'Show - 01.ja.srt' -- 'Show - 01.en.ass' 'Show - 01.srt'
@@ -502,22 +580,27 @@ redoing.
    2, the PowerShell script below also makes the cards, with skipped episodes
    left out and the others keeping their numbers.
 3. **subs2srs B, C, D.** The script becomes one command, with automatic track
-   choice and the season table. Work orders in `docs/season-work-orders-subs2srs.md`.
+   choice and the season table. Done 2026-10-04. Work orders in
+   `docs/season-work-orders-subs2srs.md`.
    - 3.1 B1 + B2: the track list and pick, and finding MKVToolNix in its Windows
      install folder. Done 2026-10-04 (bf4b5de).
    - 3.2 B3: extraction. Done 2026-10-04 (2f77756).
    - 3.3 C2: the launcher's UTF-8 pipes, a cancel that stops subsretimer, the
      report and the editor command. Done 2026-10-04 (152bfb7).
    - 3.3b C1 + C2: the JP lookup and the retime stage. Done 2026-10-04
-     (3ac375a).
+     (3ac375a, 75c7246).
    - 3.4 D: `subs2srs-cli season`, its extract and retime stages and their table.
      Done 2026-10-04 (dd759c0).
    - 3.4b D: `season` makes the cards with `go`, in the same process and table.
      Done 2026-10-04 (0a3803e).
-   - 3.5: documentation.
+   - 3.5: documentation. Done 2026-10-04 (18fc184).
 4. **Optional: E.**
 
-### Interim PowerShell script (until phase 3; makes the cards with `subs2srs-cli`)
+### Fallback PowerShell script (makes the cards with `subs2srs-cli go`, or prints the GUI's patterns)
+
+Since phase 3, `subs2srs-cli season` (End state) does all this in one command;
+the script is kept as a fallback for a machine without `subs2srs-cli`, where it
+extracts and retimes, then prints the patterns to enter in the GUI.
 
 What it needs and does:
 
@@ -753,7 +836,8 @@ repository.
 - `subs2srs.Eval` is a console exe referencing `subs2srs`, with `--prefs`,
   `--no-prefs`, `--verbose` and a Ctrl+C token. It is the template for A1.
 - `SubsRetimerLauncher.cs` has no GTK code and builds its own
-  `ProcessStartInfo` (no UTF-8 pipes).
+  `ProcessStartInfo` (no UTF-8 pipes). Since phase 3.3 it uses
+  `UtilsCommon.makeToolStartInfo` (C2).
 - mkvmerge 82: `mkvmerge -J` exposes track name, language, forced, default and
   event count. The default flag was set on every track. `mkvextract` writes SRT
   as UTF-8 with a BOM, which subsretimer and subs2srs both honour, and exits
@@ -762,7 +846,7 @@ repository.
   in `C:\Program Files\MKVToolNix` without adding that folder to `PATH`. The
   user hit this on 2026-10-04: `mkvextract` was not found with MKVToolNix
   installed. subs2srs looks in the *Tools Directory* preference (one folder),
-  then `PATH`.
+  then `PATH`; since phase 3.1 also in that folder (B3).
 - subsretimer `--auto` with an explicit `--output` overwrites (`Cli.RunAuto`).
   `CliTests.RealProcess_HonoursStdoutContract` runs `dotnet subsretimer.dll`
   and expects stdout to be exactly the path plus `Environment.NewLine` (since
@@ -798,7 +882,8 @@ repository.
 - `SubsRetimerLauncher.ParseResult` splits stdout on `'\n'` and trims each line,
   so a CRLF from a Windows subsretimer is harmless. The launcher starts it with
   `UseShellExecute = false` and `CreateNoWindow = true`
-  (`SubsRetimerLauncher.cs:90-95`).
+  (`SubsRetimerLauncher.cs:90-95`; since phase 3.3 through `makeToolStartInfo`,
+  which sets both).
 - Coverage by "any overlap" does not tell a wrong pair from a right one
   (2026-10-04, a simulation in the lead's scratchpad with `Fixtures.Dialogue`'s
   timing distribution, 300 lines). Right pair: the reference jittered by up to
