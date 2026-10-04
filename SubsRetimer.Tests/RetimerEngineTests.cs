@@ -38,6 +38,75 @@ namespace SubsRetimer.Tests
       Assert.Equal(-1, RetimerEngine.ClosestIndex(Ms(0), new List<RetimerLine>()));
     }
 
+    /// <summary>
+    /// The editor lands on this line when Left/Right, a right-click or a gap
+    /// jump asks for the counterpart of the selected one, so which way a tie
+    /// goes is a visible decision: the earlier line wins.
+    /// </summary>
+    [Fact]
+    public void ClosestIndex_HalfwayBetweenTwoLines_TakesTheEarlierOne()
+    {
+      var lines = Fixtures.Lines(10); // starts at 1000, 3500, 6000, ...
+      Assert.Equal(0, RetimerEngine.ClosestIndex(Ms(2250), lines));
+      Assert.Equal(1, RetimerEngine.ClosestIndex(Ms(4750), lines));
+      // A start exactly on a line is that line, not its predecessor.
+      Assert.Equal(1, RetimerEngine.ClosestIndex(Ms(3500), lines));
+    }
+
+    /// <summary>
+    /// A Time Shift with a negative delta can leave the target out of order
+    /// (10 s, 20 s, then 5 s), and the list is never re-sorted. The closest
+    /// line must still be the closest, not whatever a binary search lands on.
+    /// </summary>
+    [Fact]
+    public void ClosestIndex_OutOfOrder_StillFindsTheClosestStart()
+    {
+      var lines = new List<RetimerLine>
+      {
+        new() { Start = Ms(10000), End = Ms(11000) },
+        new() { Start = Ms(20000), End = Ms(21000) },
+        new() { Start = Ms(5000), End = Ms(6000) },
+      };
+      Assert.False(RetimerEngine.IsSortedByStart(lines));
+      Assert.Equal(2, RetimerEngine.ClosestIndex(Ms(5000), lines));
+      Assert.Equal(2, RetimerEngine.ClosestIndex(Ms(0), lines));
+      Assert.Equal(0, RetimerEngine.ClosestIndex(Ms(9000), lines));
+      Assert.Equal(1, RetimerEngine.ClosestIndex(Ms(99000), lines));
+      // Halfway between 5 s and 10 s: the earlier start wins, as it does sorted.
+      Assert.Equal(2, RetimerEngine.ClosestIndex(Ms(7500), lines));
+    }
+
+    [Fact]
+    public void ShiftFrom_BackPastTheLineAbove_LeavesMismatchFlagsRight()
+    {
+      // Reference: ten 1 s lines at 10 s, 20 s ... 100 s. Target: thirty
+      // lines from 1000 s, then ten more from 2000 s that are the reference's
+      // dialogue, 1990 s late. Forty lines, so BestOverlap's window of twelve
+      // lines either side cannot cover the whole list by accident.
+      var reference = Enumerable.Range(0, 10)
+        .Select(i => new RetimerLine { Start = Ms(10000 + 10000 * i), End = Ms(11000 + 10000 * i), RawIndex = i })
+        .ToList();
+      var target = Enumerable.Range(0, 40)
+        .Select(i => i < 30
+          ? new RetimerLine { Start = Ms(1000000 + 10000 * i), End = Ms(1001000 + 10000 * i), RawIndex = i }
+          : new RetimerLine { Start = Ms(2000000 + 10000 * (i - 30)), End = Ms(2001000 + 10000 * (i - 30)), RawIndex = i })
+        .ToList();
+      var e = Engine(reference, target);
+
+      // Row 30 onto reference row 0: rows 30-39 land before row 29.
+      e.ShiftToMatch(0, 30);
+      Assert.False(RetimerEngine.IsSortedByStart(e.TargetLines));
+
+      // Every reference line has its counterpart again ...
+      Assert.All(RetimerEngine.MismatchFlags(e.ReferenceLines, e.TargetLines), f => Assert.False(f));
+      // ... and only the first thirty target lines have none.
+      Assert.Equal(
+        Enumerable.Range(0, 40).Select(i => i < 30).ToArray(),
+        RetimerEngine.MismatchFlags(e.TargetLines, e.ReferenceLines));
+      // The window's Left/Right from reference row 0 lands on target row 30.
+      Assert.Equal(30, RetimerEngine.ClosestIndex(e.ReferenceLines[0].Start, e.TargetLines));
+    }
+
     [Fact]
     public void ShiftFrom_ShiftsTailOnly_AndTracksDirty()
     {
@@ -70,6 +139,45 @@ namespace SubsRetimer.Tests
       e.ShiftToMatch(0, 0);
       for (int i = 0; i < 5; i++) Assert.Equal(reference[i].Start, e.TargetLines[i].Start);
       Assert.Equal((0.0, 0.0), e.AverageMismatchSeconds());
+    }
+
+    [Fact]
+    public void Undo_BackToTheLoadedState_IsCleanAgain()
+    {
+      var e = Engine(Fixtures.Lines(3), Fixtures.Lines(3));
+      e.ShiftFrom(0, Ms(500));
+      e.ShiftFrom(1, Ms(250));
+      Assert.True(e.IsDirty);
+      e.Undo();
+      Assert.True(e.IsDirty);
+      e.Undo();
+      Assert.False(e.IsDirty);   // the timings match the file again
+      e.Redo();
+      Assert.True(e.IsDirty);
+    }
+
+    [Fact]
+    public void Save_MarksTheCleanDepth_AndRedoCanReachItAgain()
+    {
+      var e = new RetimerEngine();
+      e.LoadTarget(RetimerIO.Load(Fixtures.WriteTemp(".srt", Fixtures.SrtFile(Fixtures.Lines(3)))));
+      e.ShiftFrom(0, Ms(500));
+      string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".srt");
+      try
+      {
+        e.Save(path);
+        Assert.False(e.IsDirty);
+        e.Undo();
+        Assert.True(e.IsDirty);    // the loaded state differs from the saved file
+        e.Redo();
+        Assert.False(e.IsDirty);   // back to what was saved
+        e.Undo();
+        e.ShiftFrom(0, Ms(999));   // diverges from the saved history at the same depth
+        Assert.True(e.IsDirty);
+        e.Undo();
+        Assert.True(e.IsDirty);    // the saved state is no longer reachable
+      }
+      finally { File.Delete(path); }
     }
 
     [Fact]

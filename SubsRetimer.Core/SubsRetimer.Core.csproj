@@ -4,11 +4,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>SubsRetimer.Core</RootNamespace>
-    <Authors>Christopher Brochtrup;jhhr and contributors</Authors>
-    <Copyright>Copyright © 2012 Christopher Brochtrup. © 2026 jhhr and contributors</Copyright>
     <Description>Subs Re-Timer core: subtitle parsing, writing, shifting and automatic alignment (no UI)</Description>
-    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
-    <Version>0.1.0</Version>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="SubsRetimer.Tests" />

@@ -24,6 +24,13 @@ namespace SubsRetimer.Core
     public Encoding Encoding { get; init; } = new UTF8Encoding(false);
     public bool HasBom { get; init; }
 
+    /// <summary>
+    /// True when some bytes were not valid in <see cref="Encoding"/> and were
+    /// read as U+FFFD. The file still loads, but saving it would write those
+    /// characters back changed: the wrong encoding was given.
+    /// </summary>
+    public bool HasInvalidBytes { get; init; }
+
     /// <summary>Line terminator used by the file ("\r\n" or "\n").</summary>
     public string NewLine { get; init; } = "\n";
 

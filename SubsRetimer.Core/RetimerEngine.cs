@@ -33,17 +33,51 @@ namespace SubsRetimer.Core
     public bool CanUndo => _undo.Count > 0;
     public bool CanRedo => _redo.Count > 0;
 
-    /// <summary>True when the target has unsaved timing changes.</summary>
-    public bool IsDirty { get; private set; }
+    /// <summary>
+    /// True when the target's timings differ from what was last loaded or
+    /// saved. Tracked as the undo depth at which the two agree, so undoing
+    /// back to that state is clean again; -1 once that state can no longer
+    /// be reached (a new shift after an undo discards the redo history).
+    /// </summary>
+    public bool IsDirty => _undo.Count != _cleanDepth;
+    private int _cleanDepth;
 
-    public void LoadReference(SubtitleFile file) => Reference = file;
+    // ── Change notification ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Raised after any operation that changed what a view shows: loading a
+    /// file, a shift that moved lines, an undo or redo that did something,
+    /// and a save (which clears <see cref="IsDirty"/>). Not raised when the
+    /// operation did nothing, so a handler may repaint unconditionally.
+    /// </summary>
+    public event Action? Changed;
+
+    /// <summary>
+    /// Counts the changes reported by <see cref="Changed"/>. A view that
+    /// cannot subscribe (or that batches work) can compare this instead.
+    /// </summary>
+    public int Version { get; private set; }
+
+    /// <summary>Record one change and tell the subscribers. Called after the state is updated.</summary>
+    private void Bump()
+    {
+      Version++;
+      Changed?.Invoke();
+    }
+
+    public void LoadReference(SubtitleFile file)
+    {
+      Reference = file;
+      Bump();
+    }
 
     public void LoadTarget(SubtitleFile file)
     {
       Target = file;
       _undo.Clear();
       _redo.Clear();
-      IsDirty = false;
+      _cleanDepth = 0;
+      Bump();
     }
 
     // ── Shifting ─────────────────────────────────────────────────────────
@@ -59,6 +93,7 @@ namespace SubsRetimer.Core
       if (fromIndex < 0 || fromIndex >= TargetLines.Count) throw new ArgumentOutOfRangeException(nameof(fromIndex));
       if (delta == TimeSpan.Zero) return;
 
+      if (_cleanDepth > _undo.Count) _cleanDepth = -1; // the clean state was in the redo history
       _undo.Push(Snapshot());
       _redo.Clear();
 
@@ -68,7 +103,7 @@ namespace SubsRetimer.Core
         lines[i].Start += delta;
         lines[i].End += delta;
       }
-      IsDirty = true;
+      Bump();
     }
 
     /// <summary>The Time Shift button: shift from <paramref name="targetIndex"/> so it starts with reference line <paramref name="refIndex"/>.</summary>
@@ -80,7 +115,7 @@ namespace SubsRetimer.Core
       if (!CanUndo) return false;
       _redo.Push(Snapshot());
       Restore(_undo.Pop());
-      IsDirty = true;
+      Bump();
       return true;
     }
 
@@ -89,7 +124,7 @@ namespace SubsRetimer.Core
       if (!CanRedo) return false;
       _undo.Push(Snapshot());
       Restore(_redo.Pop());
-      IsDirty = true;
+      Bump();
       return true;
     }
 
@@ -112,7 +147,8 @@ namespace SubsRetimer.Core
       if (Target == null) throw new InvalidOperationException("No target loaded.");
       string path = outputPath ?? RetimerIO.DefaultOutputPath(Target.Path);
       RetimerIO.Save(Target, path);
-      IsDirty = false;
+      _cleanDepth = _undo.Count;
+      Bump(); // the title and the saved-paths list follow IsDirty
       return path;
     }
 
@@ -132,8 +168,50 @@ namespace SubsRetimer.Core
       return inter / d1;
     }
 
-    /// <summary>Index of the line in <paramref name="lines"/> whose start is closest to <paramref name="start"/>. -1 when empty.</summary>
-    public static int ClosestIndex(TimeSpan start, IReadOnlyList<RetimerLine> lines)
+    /// <summary>
+    /// Index of the line in <paramref name="lines"/> whose start is closest to
+    /// <paramref name="start"/>, the earlier one on a tie. -1 when empty.
+    ///
+    /// Any order is answered correctly. Files load sorted, but a Time Shift
+    /// with a negative delta can move a line before the one above it, and the
+    /// target list is never re-sorted (undo and the row numbers depend on
+    /// that). A sorted list is binary-searched; anything else is scanned.
+    /// </summary>
+    public static int ClosestIndex(TimeSpan start, IReadOnlyList<RetimerLine> lines) =>
+      IsSortedByStart(lines) ? ClosestIndexSorted(start, lines) : ClosestIndexScan(start, lines);
+
+    /// <summary>True when every line starts no earlier than the one before it.</summary>
+    public static bool IsSortedByStart(IReadOnlyList<RetimerLine> lines)
+    {
+      for (int i = 1; i < lines.Count; i++)
+        if (lines[i].Start < lines[i - 1].Start) return false;
+      return true;
+    }
+
+    /// <summary><paramref name="lines"/> itself when it is sorted by start, otherwise a stably sorted copy.</summary>
+    internal static IReadOnlyList<RetimerLine> SortedByStart(IReadOnlyList<RetimerLine> lines) =>
+      IsSortedByStart(lines) ? lines : lines.OrderBy(l => l.Start).ToList();
+
+    /// <summary>Linear <see cref="ClosestIndex"/> for a list that is out of order: the earlier start wins a tie, then the lower index.</summary>
+    private static int ClosestIndexScan(TimeSpan start, IReadOnlyList<RetimerLine> lines)
+    {
+      int best = -1;
+      TimeSpan bestDistance = TimeSpan.MaxValue;
+      for (int i = 0; i < lines.Count; i++)
+      {
+        TimeSpan distance = (lines[i].Start - start).Duration();
+        if (best < 0 || distance < bestDistance ||
+            (distance == bestDistance && lines[i].Start < lines[best].Start))
+        {
+          best = i;
+          bestDistance = distance;
+        }
+      }
+      return best;
+    }
+
+    /// <summary><see cref="ClosestIndex"/> for a list known to be sorted by start: a binary search, for the loops that call it per line.</summary>
+    internal static int ClosestIndexSorted(TimeSpan start, IReadOnlyList<RetimerLine> lines)
     {
       if (lines.Count == 0) return -1;
       int lo = 0, hi = lines.Count - 1;
@@ -148,10 +226,14 @@ namespace SubsRetimer.Core
       return lo;
     }
 
-    /// <summary>Best overlap of a (possibly shifted) line against <paramref name="others"/>. Negative when nothing overlaps.</summary>
+    /// <summary>
+    /// Best overlap of a (possibly shifted) line against <paramref name="others"/>,
+    /// which must be sorted by start (a loaded file is; see
+    /// <see cref="IsSortedByStart"/>). Negative when nothing overlaps.
+    /// </summary>
     public static double BestOverlap(TimeSpan start, TimeSpan end, IReadOnlyList<RetimerLine> others, int window = 12)
     {
-      int c = ClosestIndex(start, others);
+      int c = ClosestIndexSorted(start, others);
       if (c < 0) return double.NegativeInfinity;
       double best = double.NegativeInfinity;
       int from = Math.Max(0, c - window), to = Math.Min(others.Count - 1, c + window);
@@ -185,11 +267,43 @@ namespace SubsRetimer.Core
       return flags;
     }
 
-    /// <summary>True for lines with no overlap in <paramref name="others"/> (gray rows). All false when either side is empty.</summary>
+    /// <summary>
+    /// First flagged index strictly after <paramref name="from"/>, or -1 when
+    /// there is none. <paramref name="from"/> may be -1 (nothing selected:
+    /// the first flagged index is returned) or beyond the end.
+    /// </summary>
+    public static int NextLargeGap(bool[] flags, int from)
+    {
+      ArgumentNullException.ThrowIfNull(flags);
+      if (from >= flags.Length - 1) return -1; // also keeps from + 1 from overflowing
+      for (int i = from < 0 ? 0 : from + 1; i < flags.Length; i++)
+        if (flags[i]) return i;
+      return -1;
+    }
+
+    /// <summary>
+    /// Last flagged index strictly before <paramref name="from"/>, or -1 when
+    /// there is none. <paramref name="from"/> may be -1 (nothing selected:
+    /// always -1) or beyond the end (the last flagged index is returned).
+    /// </summary>
+    public static int PreviousLargeGap(bool[] flags, int from)
+    {
+      ArgumentNullException.ThrowIfNull(flags);
+      if (from <= 0) return -1; // nothing is strictly before index 0
+      for (int i = Math.Min(from - 1, flags.Length - 1); i >= 0; i--)
+        if (flags[i]) return i;
+      return -1;
+    }
+
+    /// <summary>
+    /// True for lines with no overlap in <paramref name="others"/> (gray rows).
+    /// All false when either side is empty. Either list may be out of order.
+    /// </summary>
     public static bool[] MismatchFlags(IReadOnlyList<RetimerLine> lines, IReadOnlyList<RetimerLine> others)
     {
       var flags = new bool[lines.Count];
       if (others.Count == 0) return flags;
+      others = SortedByStart(others);   // BestOverlap searches it
       for (int i = 0; i < lines.Count; i++)
         flags[i] = BestOverlap(lines[i], others) <= 0;
       return flags;
@@ -203,14 +317,14 @@ namespace SubsRetimer.Core
     /// </summary>
     public (double All, double Matched) AverageMismatchSeconds()
     {
-      var t = TargetLines; var r = ReferenceLines;
+      var t = TargetLines; var r = SortedByStart(ReferenceLines);
       if (t.Count == 0 || r.Count == 0) return (0, 0);
 
       double sumAll = 0, sumMatched = 0;
       int matched = 0;
       foreach (var line in t)
       {
-        int c = ClosestIndex(line.Start, r);
+        int c = ClosestIndexSorted(line.Start, r);
         double d = Math.Abs((line.Start - r[c].Start).TotalSeconds);
         sumAll += d;
         if (BestOverlap(line, r) > 0) { sumMatched += d; matched++; }
