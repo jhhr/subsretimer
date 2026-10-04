@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.4)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 3.4b)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -249,6 +249,13 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   non-Matroska container. `CliRunner.GoAsync` is still one method: `LoadProject`,
   `FromSeason`, `SetUpSeasonRun` (sets `EpisodeNumbers` from the ready episodes), checks,
   `AiPrePass`, `SubsProcessor.StartAsync`, `PrintTable`. Unit 809 / 4 skipped.
+- After phase 3.4b (0a3803e): `season` runs `go` in the same process on the Ready
+  episodes (`SeasonCommand.ForGo`; the others skipped with the retime's reason), with
+  `--deck` (also on `go`), `--grouping`, `--only go`; Subs2 read as UTF-8 with one
+  warning. `CliRunner.GoAsync` is split: `ApplyCardOptions`, `PlanGo` (dry run →
+  `GoPlan`), `RunGoAsync(list, yes, stderr, token)` → `GoRun` (`Cells()`, `TsvLine`,
+  `Stopped`); `go`'s output is unchanged. Unit 818 / 4 skipped (fresh
+  `SUBSRETIMER_EXE`), 814 / 8 unset.
 - A stray empty file `/dummy` (outside both repositories) was left by phase 3.4's agent;
   the user decides about it. Do not create files outside the repositories and `$S`.
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
@@ -659,6 +666,34 @@ columns; its last line becomes `go`'s season TSV line.
   `docs/open-items.md` in subs2srs; the spec's B, C, D as built; the interim script
   replaced by the one command in the spec's "End state" (keep the script as a fallback
   for a machine without subs2srs-cli, or say it is retired).
+- Known stale, collected by the lead from the phase 3 logs (check each against the code;
+  the code is right, the docs follow it):
+  - subs2srs `docs/architecture.md`: the launcher section (UTF-8 pipes, kill on cancel,
+    `MinMatch`/`ReportPath`, `RetimeReport`, `EditorCommand`, "options the launcher does
+    not pass yet"); a `season` section beside the `go` one (stages, `SeasonEpisode` rows
+    and columns, keep-if-newer, which files each stage deletes and which it never does,
+    go taking only Ready episodes, the UTF-8 Subs2 override); MKVToolNix lookup
+    (`%ProgramFiles%\MKVToolNix`) and `UtilsCommon.RunToolAsync`.
+  - `docs/testing.md`: `SUBSRETIMER_EXE` (the real-tool tests skip unset; a stale build
+    fails them), `[RequiresEnvFact]`, `[RequiresPosixShellFact]`, `[RequiresMkvToolnixFact]`,
+    the `Fixtures/retime` and `Fixtures/mkv` fixtures, setting file times instead of
+    sleeping (`SetBack`).
+  - `docs/open-items.md`: deferred item 2 (launcher start info and `[RequiresEnvFact]`
+    done); new: go's checks run only after extract and retime (an up-front check would
+    be friendlier); keep-if-newer trusts file times (a JP file copied with its old time
+    keeps an old retime: `--force`); a changed `--track` needs `--force`; the Windows
+    paths of phase 3 (PowerShell quoting of the editor command, case-insensitive names)
+    are checked by CI's tests only, not by hand.
+  - README: `subs2srs-cli season` (an example run, the table, the editor commands, the
+    exit codes), `--deck` on `go`; CHANGELOG: `season`, `go --deck`, the MKVToolNix
+    folder fallback (also for the GUI's MKV dialogs), the Retimer dialog: closing it
+    stops an auto-align, Japanese saved paths come back intact on Windows.
+  - The spec (`/home/user/subsretimer/docs/season-batch-plan.md`): B, C, D and Design 7
+    and 9 as built (segments, not cuts; dotted JP tags; no delete on a lookup problem;
+    the editor command in PowerShell double quotes with full paths and no `--`); the
+    End state table and its last lines as `season` prints them now (run it on a
+    generated season to copy real output); phase 0 still sets the `--min-match`
+    default; phase 0's steps can use `season --dry-run` and `season --only extract`.
 
 ## 5. Log (newest last; 25 lines at most per entry)
 
@@ -1109,3 +1144,10 @@ retime in one clock tick made episode 4 "to retime" once). Untested: a cancel in
 tested failed check). By hand: the built console on a real two-episode muxed season with the real subsretimer and ffmpeg (audio,
 snapshots, Shift-JIS Subs2 project, `--deck`): retimed, 5 cards, umlauts intact, exit 3.
 Unit 818 passed / 4 skipped (Debug, Release; fresh `SUBSRETIMER_EXE`), 814 / 8 skipped unset (Release). No UI file, no packages.
+
+### Lead — 2026-10-04 — after phase 3.4b
+Reviewed the `GoAsync` split and `ForGo`; `CliTests` only gained a test, so `go` is
+unchanged. Release unit 818 / 4 skipped (fresh `SUBSRETIMER_EXE`), 814 / 8 unset;
+pushed 0a3803e. CI on dd759c0 green on both jobs (the real-mkvmerge season tests on
+Windows included). Kept the agent's choices; its open points (checks after the work,
+file times) go to open-items in 3.5, whose work order now lists the stale docs.
