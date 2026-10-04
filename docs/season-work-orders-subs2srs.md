@@ -368,3 +368,29 @@ Reviewed `Settings.EpisodeNumber` and the worker sites; Release unit 583 / 4 ski
 22 on my own run. subs2srs CI (Linux and Windows) green on 60737f0; pushed 53117ed.
 Decided the padding finding: `Settings.EpisodeCountForNames`, set by `go` in season mode
 to the season's video count, so names do not change with skips; added to 2.2b.
+
+### Phase 2.2b — 2026-10-04 — b912688
+Built: `PipelineResult` (`Status` Completed/Cancelled/Failed, one-line `Message`, `CardsPerEpisode` by index), returned
+by `SubsProcessor.StartAsync`. A step returning null/false now throws a private `StepStoppedException`; Cancelled iff
+the reporter's `Cancel` or token is set (also when a step threw after the cancel), else Failed with "<progress label>
+failed: <detail>": `WorkerAudio.Error`, the exception's message, or an `AggregateException`'s first inner one. An
+uncreatable output dir is Failed too. `Settings.EpisodeCountForNames` (`int?`, `[JsonIgnore]`, nulled by `Reset` and
+`RestoreFrom`, logged) and `Settings.EpisodeCountForPadding(runEpisodes)`, used by the five worker `UtilsName`s (Srs,
+Audio, Snapshot, AnimatedSnapshot, Video; their `totalEpisodes` is `CombinedAll.Count`, still used for progress text).
+Choices / deviations: the dialogs are unchanged, so the GUI still reads "Action cancelled." when a step returns false
+without a cancel (one line in `StartAsync`'s catch if the lead wants it changed); `GoAsync` ignores the result. A card
+is a line left after "Remove inactive lines" that is not `OnlyNeededForContext`: with context on, the list also holds
+context-only lines with no TSV line, so "the list length" would overcount. `UtilsSubs.extractVobsubFilesFromText` and
+`SubsParserVOBSUB` build `UtilsName` with count 0 for VobSub prefix/suffix only: left alone, as are the GUI dialogs.
+Found: section 3's "every worker failure becomes `OperationCanceledException`" holds only for null/false returns. WorkerSubs
+steps return null only on cancel (parsers throw); WorkerSrs, Snapshot, Animated and Video return false only on cancel and
+throw on failure (`UtilsCommon.startFFmpeg` throws "ffmpeg exited with code N: <last stderr line>"); WorkerAudio returns
+false on cancel, after its own error dialog (empty demux/decode output: ffmpeg exited 0, not reached in tests), and when
+the mp3 it cuts from does not exist (its "cancellation race" branch: no message, so "it stopped without an error message").
+Tests (`SubsProcessorE2ETests`): `CompletedRun_CountsTheCardsOfEachEpisode` ([3, 1], checked per TSV tag),
+`FailingWorker_GivesFailed_WithTheStepAndItsMessage` (missing mp3; a text file as video, with audio and snapshots only),
+`CancelWhileAWorkerRuns_GivesCancelled_NotFailed`, `UnwritableOutputDir_GivesFailed`; the 2.2 theory gained count 10 with
+{3, 4} (`03`, `04`) and null (`3`, `4`); units in `SettingsSnapshotTests`, `ProjectIOTests`. Seen failing: status by
+exception type (missing mp3 read Cancelled), never Cancelled, the helper ignoring the count, cards by list length.
+The next phase must know: map `CardsPerEpisode[i]` through `Settings.EpisodeNumber(i)`; set `EpisodeCountForNames` after
+loading the project (`ProjectIO.Load` clears it). Unit 594 passed / 4 skipped, Debug and Release; no UI file touched.

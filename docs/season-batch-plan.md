@@ -343,9 +343,11 @@ documented `--auto` behaviour.
   `Cancelled` or `Failed`), message, and card count per episode.
   - Today it returns a plain `Task`, swallows every exception and reports only
     through `UtilsMsg`.
-  - A failing worker surfaces as `OperationCanceledException`, so the user reads
-    "Action cancelled."; the result must tell a worker failure from a real
-    cancel.
+  - A step that stops by returning null or false surfaces as
+    `OperationCanceledException`, so the user reads "Action cancelled."; the
+    result must tell a worker failure from a real cancel. (Checked in 2.2b:
+    most worker failures throw and read "Error: ..."; only the audio worker
+    returns false on a failure.)
   - The GUI keeps its dialogs.
 - **A6. AI first, then the run** (decision 6).
   - The CLI runs "Combine subs" and "Inactivate lines" over all episodes, then
@@ -496,7 +498,7 @@ redoing.
      (4bd733a, 447d195, 2154efc).
    - 2.2 A4: explicit episode numbers. Done 2026-10-04 (53117ed).
    - 2.2b A5: the run result; episode-number padding that does not change
-     when episodes are skipped.
+     when episodes are skipped. Done 2026-10-04 (b912688).
    - 2.3 A3 + A7: the checks, `go` running the pipeline, and the table.
    - 2.4 A6: the AI pre-pass.
    - 2.5 A8: packaging. 2.6: documentation.
