@@ -119,7 +119,7 @@ backticks, `$` or non-ASCII text gets mangled and has corrupted documents before
 - Choices made, deviations, anything fragile or unfinished. Say it plainly: a problem
   reported is cheap, one found later is not.
 
-## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.4)
+## 3. State of the code (kept by the lead; as of 2026-10-04, after phase 2.5)
 
 Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.1:
 
@@ -179,6 +179,12 @@ Branch `claude/hopeful-babbage-vrca6w`, from `main` at `91578ce`. After phase 2.
   skipped (a cached one still runs). `go` then calls `StartAsync(progress, combinedAll,
   joins)`; the table has an `AI` column; `--dry-run` shows `cached`/`not cached`.
   Tests `CliAiPrePassTests`. Unit 621 / 4 skipped.
+- Phase 2.5: `make build`/`install` publish and install `subs2srs-cli` beside the app
+  (wrapper `dist/subs2srs-cli.sh`, no `cd`, `mkdir -p` of the XDG config and data
+  folders); `make publish-windows` and `release.yml` publish it self-contained into
+  `out\win-x64` after the app (the shared files come out byte-identical);
+  `smoke.ps1` checks `subs2srs-cli.exe --version` and `go --help`; `release.yml` runs
+  by hand (`workflow_dispatch`, version `0.0.0-dev`, no release without a tag).
 - CI: the Windows UI job once hung in `PreviewGroupingTests.Preview_ProposesEditsAndExportsGrouping`
   (GTK thread wedged, 11 timeouts after it) on b912688 and passed on the next commit. Not
   caused by this work as far as known; if you see it, report it with the log.
@@ -236,7 +242,7 @@ Facts checked by the lead before phase 2.1, so you need not re-derive them:
 
 ## 4. Phases
 
-Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4.
+Done: 2.1, 2.2, 2.2b, 2.3, 2.3b, 2.4, 2.5.
 
 ### 2.1 — The `subs2srs-cli` project and the episode list (spec A1, A2)
 
@@ -607,3 +613,12 @@ with its `mkdir` and `cd`). The CLI wrapper therefore creates `~/.config` and `~
 `/usr/lib/subs2srs/subs2srs-cli` directly still has it; the app fix is `SpecialFolderOption.DoNotVerify`, for the lead.
 Left open: the Windows zip and smoke are unrun (no Windows here); the CLI exe has no `app.manifest` (no long-path or
 UTF-8 code page manifest) and no icon; each `go` leaves an empty `log-*.txt` in the Logs folder (logging off).
+
+### Lead — 2026-10-04 — after phase 2.5
+Reviewed the Makefile, wrapper and `release.yml` diffs; pushed 3b373a1 and started
+`release.yml` by hand on the branch to build and smoke-test the zip on Windows. Open
+for the docs phase (`docs/open-items.md`): `Environment.GetFolderPath` returns "" when
+`~/.config` or `~/.local/share` is missing, so preferences, logs and the AI cache then
+resolve under the working directory (the wrapper creates them; running the binary
+directly does not); every `go` leaves an empty `log-*.txt`; the CLI has no app manifest
+or icon.
