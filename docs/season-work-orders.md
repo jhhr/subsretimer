@@ -272,3 +272,28 @@ own run. Added phase 1.1b for the candidate-offset finding above, before 1.2: ph
 real episodes is where it would show, and the fix is local to `CandidateOffsets`. Phase
 1.1 used about 200k tokens, mostly on the 20-seed exploration; later phases should keep
 experiments to what their work order asks.
+
+### Phase 1.1b — 2026-10-04 — 1aa7813
+Built: `AutoAlign.CandidateOffsets` sums each bin with its neighbours (a triangle over ±2
+bins, weights 1-2-3-2-1) before picking peaks; the ±3-bin suppression, DP, `Refine` and
+`MergeSimilar` are as they were. `AutoAlignOptions.MaxCandidates` default 8 → 12. Test:
+`AutoAlignTests.JitteredClosedCaptions_EveryBlockKeepsItsOwnOffset`, three seeded pairs,
+the true offset of each line taken from a new `ClosedCaptions(..., out int[] source)`
+overload (the old one returns the same lines). (1, 59) and (1, 36) fail without the
+smoothing, (41, 141) with 8 candidates.
+Choices / deviations: a box kernel makes a sharp peak a plateau (±1 bins shifted offsets
+100 ms toward 0 at zero jitter, more boundary misses); a 5-bin box merges two offsets
+400 ms apart; picking only local maxima lost that close cut at 0-100 ms jitter. 16
+candidates let a chance offset take 12 lines next to a cut (sweep seed 45, 250 ms).
+Sweep (`$S/sim`: `dotnet out/sim.dll sweep 30`; 300 lines, 15% split, 15% cues): pairs
+with a whole block >1 s off, of 30, at jitter 0/100/250/400 ms, 1.1 cuts: before
+0/0/4/15, after 0/0/0/0. Cuts +0.4 s at line 100 and +3 s at 200: none either way; the
+0.4 s step is told apart as before at 0 and 100 ms (15 and 22 lines >0.15 s off in both
+runs) and mostly merged at 250/400 ms, before and after (4498 → 4205, 4032 → 2443 lines).
+Numbers: the coverage test's pair right 0.997 (same), wrong 0.497 → 0.530; the 20-seed
+scratch run right min 0.910 → 0.987, wrong max 0.570 → 0.543. `Compute` on 1,000 lines
+about 20 ms before and after.
+The next phase must know: no CLI change. Lines from the two dialogue lines either side
+of a cut can still take the neighbouring offset (the boundary item in ui-plan.md).
+Left open: the histogram counts every pair within ±10 min, so a short block stays a weak
+peak: with seeds 31-60 too, 2 of 60 pairs still lose the -4 s block at 400 ms jitter.
